@@ -4,6 +4,7 @@ import { ArrowDownLeft, ArrowLeft, ArrowUpLeft, Archive, Box, Building2, Check, 
 import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, formatScaled } from './domain';
 import { inDesktop, store } from './store';
 import { BackupInfo, chooseBackup, createBackup, restoreBackup } from './backup';
+import { summarizeExpenses } from './expenses';
 import { Calendar, displayCalendarDate, normalizeDateDigits, parseCalendarDate, todayKabul } from './calendar';
 import './style.css';
 
@@ -62,7 +63,7 @@ function App() {
           <section className="panel customers-panel"><div className="panel-head"><div><h2>مشتریان اخیر</h2><p>نگاهی به حساب مشتریان شما</p></div><button className="text-button" onClick={() => navigate('customers')}>مشاهده مشتریان <ArrowLeft size={15}/></button></div><CustomerTable customers={snapshot.customers.slice(0,5)} loading={loading} openLedger={setLedgerId} edit={editCustomer}/></section>
         </>}
         {page === 'backup' && <BackupPanel onRestored={refresh}/>}
-        {page === 'expenses' && <ExpenseList expenses={expenses} calendar={calendar} loading={loading} edit={setExpenseModal}/>}
+        {page === 'expenses' && <ExpenseList key={calendar} expenses={expenses} calendar={calendar} loading={loading} edit={setExpenseModal}/>}
         {page === 'employees' && <EmployeeList staff={staff} calendar={calendar} loading={loading} edit={setEmployeeModal}/>}
         {page !== 'dashboard' && page !== 'backup' && page !== 'employees' && page !== 'expenses' && <section className="panel listing"><div className="panel-head list-header"><div><h2>{page === 'customers' ? 'فهرست مشتریان' : page === 'sales' ? 'فهرست فروشات' : 'فهرست رسیدات'}</h2><p>{page === 'customers' ? `${snapshot.customers.length} مشتری ثبت شده` : 'حداکثر ۱۰۰ فعالیت اخیر نمایش داده می‌شود'}</p></div><label className="search"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." aria-label="جستجو"/></label></div>{page === 'customers' ? <CustomerTable customers={customers} loading={loading} openLedger={setLedgerId} edit={editCustomer}/> : <Entries entries={recent} loading={loading} calendar={calendar}/>}</section>}
         <footer><span>© سیستم مدیریت فردای روشن</span><span>ساخته‌شده برای کار بهتر، هر روز.</span></footer>
@@ -81,9 +82,14 @@ function Entries({ entries,loading,calendar }: { entries: Snapshot['entries']; l
 
 function ExpenseList({ expenses, calendar, loading, edit }: { expenses: Expense[]; calendar: Calendar; loading: boolean; edit: (expense: Expense) => void }) {
   const [search, setSearch] = useState('');
-  const rows = expenses.filter(e => normalizeDateDigits(`${e.date} ${displayCalendarDate(e.date, calendar)} ${e.description} ${e.expense_type} ${e.purchase_bill_no} ${e.shop_name} ${e.payer} ${e.notes}`).toLowerCase().includes(normalizeDateDigits(search).toLowerCase()));
-  return <section className="panel listing"><div className="panel-head list-header"><div><h2>فهرست مصارف</h2><p>{rows.length} مصرف نمایش داده می‌شود؛ ارزها تبدیل یا جمع نمی‌شوند.</p></div><label className="search"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." aria-label="جستجوی مصارف"/></label></div>
-    <div className="table-wrap"><table><thead><tr><th>تاریخ</th><th>شرح</th><th>نوع مصرف</th><th>افغانی</th><th>دالر</th><th>پرداخت‌کننده</th><th>روش</th><th>عملیات</th></tr></thead><tbody>{rows.map(e => <tr key={e.id}><td><span className="code" dir="ltr">{displayCalendarDate(e.date, calendar)}</span></td><td>{e.description}</td><td>{e.expense_type || '—'}</td><td><b dir="ltr">{displayMoney(e.amount_afn)}</b></td><td><b dir="ltr">{displayMoney(e.amount_usd)}</b></td><td>{e.payer || '—'}</td><td>{e.payment_method === 'cash' ? 'نقده' : 'باقی'}</td><td><button className="text-button" onClick={() => edit(e)}>ویرایش</button></td></tr>)}</tbody></table>{!rows.length && <div className="empty">{loading ? 'در حال بارگذاری...' : 'مصرفی برای نمایش وجود ندارد.'}</div>}</div>
+  const [from, setFrom] = useState(''); const [to, setTo] = useState('');
+  let summary: ReturnType<typeof summarizeExpenses> | null = null; let error = '';
+  try { summary = summarizeExpenses(expenses, search, from, to, calendar); } catch (e) { error = String(e).replace(/^Error: /, ''); }
+  const rows = summary?.rows ?? [];
+  return <section className="panel listing"><div className="panel-head list-header"><div><h2>فهرست مصارف</h2><p>{rows.length} مصرف نمایش داده می‌شود؛ ارزها به هم تبدیل نمی‌شوند. تغییر تقویم فیلترهای این صفحه را پاک می‌کند.</p></div><label className="search"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." aria-label="جستجوی مصارف"/></label></div>
+    <div className="expense-filters"><Field label={`از تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={from} onChange={e=>setFrom(e.target.value)} placeholder={calendar === 'shamsi' ? '1405/01/01' : '2026/03/21'}/></Field><Field label={`تا تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={to} onChange={e=>setTo(e.target.value)} placeholder={calendar === 'shamsi' ? '1405/12/29' : '2027/03/20'}/></Field></div>
+    {error ? <div className="error expense-feedback" role="alert">{error}</div> : summary && <div className="expense-summary">مجموع موارد نمایش‌داده‌شده، شامل نقده و باقی: <b dir="ltr">{displayMoney(summary.afn)}</b> افغانی · <b dir="ltr">{displayMoney(summary.usd)}</b> دالر</div>}
+    <div className="table-wrap"><table><thead><tr><th>تاریخ</th><th>شرح</th><th>نوع مصرف</th><th>افغانی</th><th>دالر</th><th>پرداخت‌کننده</th><th>روش</th><th>عملیات</th></tr></thead><tbody>{rows.map(e => <tr key={e.id}><td><span className="code" dir="ltr">{displayCalendarDate(e.date, calendar)}</span></td><td>{e.description}</td><td>{e.expense_type || '—'}</td><td><b dir="ltr">{displayMoney(e.amount_afn)}</b></td><td><b dir="ltr">{displayMoney(e.amount_usd)}</b></td><td>{e.payer || '—'}</td><td>{e.payment_method === 'cash' ? 'نقده' : 'باقی'}</td><td><button className="text-button" onClick={() => edit(e)}>ویرایش</button></td></tr>)}</tbody></table>{!error && !rows.length && <div className="empty">{loading ? 'در حال بارگذاری...' : 'مصرفی برای نمایش وجود ندارد.'}</div>}</div>
     <div className="form-hint">این نسخه شمارهٔ رسمی سند، حساب دخل و فهرست‌های مشترک انواع مصرف و پرداخت‌کنندگان را هنوز پیاده‌سازی نکرده است.</div>
   </section>;
 }

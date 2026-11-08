@@ -146,3 +146,25 @@ test('records and edits an expense with separate currencies and calendar convers
   await page.getByLabel('تقویم نمایش').selectOption('miladi');
   await expect(row).toContainText('2025/03/21');
 });
+
+
+test('expense date filters and independent totals never include out-of-range rows', async ({ page }) => {
+  await page.goto('/'); await page.getByRole('button', { name:'مصارف', exact:true }).click();
+  for (const [date, description, afn, usd] of [['۱۴۰۴/۰۱/۰۱','اول','100.50','5.25'],['۱۴۰۴/۰۱/۰۲','دوم','200.25','0']]) {
+    await page.getByRole('button', { name:'مصرف جدید' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('تاریخ شمسی').fill(date); await dialog.getByLabel('شرح مصرف').fill(description);
+    await dialog.getByLabel('مبلغ افغانی').fill(afn); await dialog.getByLabel('مبلغ دالری').fill(usd);
+    await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
+  }
+  await expect(page.locator('.expense-summary')).toContainText('300.75');
+  await expect(page.locator('.expense-summary')).toContainText('5.25');
+  await page.getByLabel('از تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۲');
+  await expect(page.locator('.expense-summary')).toContainText('200.25');
+  await expect(page.getByRole('row').filter({ hasText:'اول' })).toHaveCount(0);
+  await page.getByLabel('تا تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۱');
+  await expect(page.getByRole('alert')).toContainText('تاریخ آغاز');
+  await expect(page.locator('.expense-summary')).toHaveCount(0);
+  await page.getByLabel('تقویم نمایش').selectOption('miladi');
+  await expect(page.getByLabel('از تاریخ (میلادی)')).toHaveValue('');
+});
