@@ -222,3 +222,20 @@ test('warns about another salary in the same employee period without blocking in
   await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
   await expect(page.getByRole('row').filter({hasText:'احمد احمدی'})).toHaveCount(2);
 });
+
+test('salary filters report only matching payment dates and types', async ({ page }) => {
+  await page.goto('/'); await page.getByRole('button',{name:'معاشات',exact:true}).click();
+  for (const [date,type,base] of [['۱۴۰۴/۰۱/۰۱','cash','100'],['۱۴۰۴/۰۱/۰۲','transfer','200']]) {
+    await page.getByRole('button',{name:'پرداخت معاش جدید'}).click(); const dialog=page.getByRole('dialog');
+    await dialog.getByLabel('تاریخ پرداخت (شمسی)').fill(date); await dialog.getByLabel('نوع پرداخت').selectOption(type);
+    await dialog.getByLabel('معاش ثابت').fill(base); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  }
+  await expect(page.locator('.expense-summary')).toContainText('300');
+  await page.getByLabel('فیلتر نوع پرداخت').selectOption('transfer');
+  await expect(page.locator('.expense-summary')).toContainText('200');
+  await page.getByLabel('تا تاریخ پرداخت (شمسی)').fill('۱۴۰۴/۰۱/۰۱');
+  await expect(page.getByRole('row').filter({hasText:'احمد احمدی'})).toHaveCount(0);
+  await page.getByLabel('از تاریخ پرداخت (شمسی)').fill('۱۴۰۴/۰۱/۰۲');
+  await expect(page.getByRole('alert')).toContainText('تاریخ آغاز');
+  await expect(page.locator('.expense-summary')).toHaveCount(0);
+});
