@@ -168,3 +168,18 @@ test('expense date filters and independent totals never include out-of-range row
   await page.getByLabel('تقویم نمایش').selectOption('miladi');
   await expect(page.getByLabel('از تاریخ (میلادی)')).toHaveValue('');
 });
+
+
+test('changing calendar while a form is open keeps the date consistent', async ({ page }) => {
+  await page.goto('/'); await page.getByRole('button', { name:'مصارف', exact:true }).click();
+  await page.getByRole('button', { name:'مصرف جدید' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ شمسی').fill('۱۴۰۴/۰۱/۰۱');
+  // Change the external control directly to exercise state updates while the modal is mounted.
+  await page.getByLabel('تقویم نمایش').evaluate((el: HTMLSelectElement) => { el.value='miladi'; el.dispatchEvent(new Event('change', { bubbles:true })); });
+  await expect(dialog.getByLabel('تاریخ میلادی')).toHaveValue('2025/03/21');
+  await dialog.getByLabel('شرح مصرف').fill('تغییر تقویم');
+  await dialog.getByLabel('مبلغ افغانی').fill('1');
+  await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
+  await expect(page.getByRole('row').filter({ hasText:'تغییر تقویم' })).toContainText('2025/03/21');
+});
