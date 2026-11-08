@@ -7,3 +7,5 @@
 .calendar-control{display:flex;align-items:center;gap:5px;color:#81928e;font-size:10px}.calendar-control select{border:1px solid #e5eeeb;border-radius:7px;background:#fff;color:#49655e;padding:5px 7px;outline-color:#47a99a;font-size:11px}.field input[aria-invalid="true"]{border-color:#cf7b6f;background:#fffafa}
 
 .expense-filters{display:flex;gap:12px;flex-wrap:wrap;padding:0 20px 14px}.expense-filters .field{width:190px}.expense-summary{margin:0 20px 14px;padding:12px 14px;background:#f2f8f6;border-radius:8px;color:#59716b;font-size:12px;line-height:1.8}.expense-summary b{color:#176e62;display:inline-block}.expense-feedback{margin:0 20px 14px}@media(max-width:760px){.expense-filters .field{width:100%}}
+
+.salary-warning{background:#fff7ec;color:#865b1c;border:1px solid #f4e1c3}

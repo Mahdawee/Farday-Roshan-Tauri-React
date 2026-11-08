@@ -72,7 +72,7 @@ function App() {
         <footer><span>© سیستم مدیریت فردای روشن</span><span>ساخته‌شده برای کار بهتر، هر روز.</span></footer>
       </main>
     </div>
-    {salaryModal && <SalaryModal salary={salaryModal} staff={staff} calendar={calendar} close={() => setSalaryModal(null)} saved={async () => { setSalaryModal(null); try { await refresh(); setNotice('معاش ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
+    {salaryModal && <SalaryModal salary={salaryModal} salaries={salaries} staff={staff} calendar={calendar} close={() => setSalaryModal(null)} saved={async () => { setSalaryModal(null); try { await refresh(); setNotice('معاش ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {expenseModal && <ExpenseModal expense={expenseModal} calendar={calendar} close={() => setExpenseModal(null)} saved={async () => { setExpenseModal(null); try { await refresh(); setNotice('مصرف ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {employeeModal && <EmployeeModal employee={employeeModal} calendar={calendar} close={() => setEmployeeModal(null)} saved={async () => { setEmployeeModal(null); try { await refresh(); setNotice('معلومات کارمند ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {ledgerId && <LedgerModal calendar={calendar} customerId={ledgerId} close={() => setLedgerId(null)}/>}
@@ -92,11 +92,13 @@ function SalaryList({ salaries, calendar, loading, edit }: { salaries: Salary[];
     <div className="form-hint">ثبت معاش به حساب دخل وصل نیست؛ شمارهٔ سند، چاپ و کنترل پرداخت تکراری هنوز آماده نیست. مجموع منفی نیز مطابق فرمول قدیمی پذیرفته می‌شود و باید توسط حسابدار بررسی شود.</div>
   </section>;
 }
-function SalaryModal({ salary, staff, calendar, close, saved }: { salary: Salary | 'new'; staff: Employee[]; calendar: Calendar; close:()=>void; saved:()=>Promise<void> }) {
+function SalaryModal({ salary, salaries, staff, calendar, close, saved }: { salary: Salary | 'new'; salaries: Salary[]; staff: Employee[]; calendar: Calendar; close:()=>void; saved:()=>Promise<void> }) {
   const today=todayKabul(); const dateParts=displayCalendarDate(today,calendar).split('/');
   const initial: SalaryInput = salary === 'new' ? { employee_id:staff[0]?.id || '', period_calendar:calendar, period_year:Number(dateParts[0]), period_month:Number(dateParts[1]), pay_date:today, base:staff[0]?.base_salary || '0', bonus:'0', fine:'0', overtime:'0', payer:'', payment_type:'cash', notes:'' } : salary;
   const [form,setForm]=useState<SalaryInput>(initial); const [year,setYear]=useState(String(initial.period_year));
   const [error,setError]=useState(''); const [busy,setBusy]=useState(false);
+  const yearDigits=normalizeDateDigits(year.trim());
+  const duplicates=/^\d{1,4}$/.test(yearDigits) ? salaries.filter(s => (salary === 'new' || s.id !== salary.id) && s.employee_id === form.employee_id && s.period_calendar === form.period_calendar && s.period_year === Number(yearDigits) && s.period_month === form.period_month).length : 0;
   let total='—'; let negative=false; try { const n=salaryTotal(form.base,form.bonus,form.fine,form.overtime); total=displayMoney(formatScaled(n)); negative=n<0n; } catch { /* incomplete */ }
   const submit=async(e:React.FormEvent)=> { e.preventDefault(); setError(''); setBusy(true); try {
     const normalized=normalizeDateDigits(year.trim()); if (!/^\d{1,4}$/.test(normalized)) throw new Error('سال دورهٔ معاش معتبر نیست.');
@@ -117,7 +119,7 @@ function SalaryModal({ salary, staff, calendar, close, saved }: { salary: Salary
       <Field label="پرداخت‌کننده"><input value={form.payer} onChange={e=>setForm({...form,payer:e.target.value})}/></Field>
       <Field label="نوع پرداخت"><select value={form.payment_type} onChange={e=>setForm({...form,payment_type:e.target.value as SalaryInput['payment_type']})}><option value="cash">نقد</option><option value="transfer">حواله</option></select></Field>
       <Field label="توضیحات"><input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
-    </div><div className="form-hint">مجموع = معاش ثابت + پاداش + اضافه‌کاری − جریمه. تقویم دوره مستقل از تاریخ پرداخت است؛ با تغییر تقویم دوره، سال و ماه خودکار تبدیل نمی‌شوند.{salary === 'new' ? ' با انتخاب کارمند، معاش ثابت از معلومات فعلی او پیشنهاد می‌شود.' : ' تغییر کارمند در ویرایش، معاش ثابت ثبت‌شده را عوض نمی‌کند.'}{negative && ' هشدار: مجموع منفی است؛ پیش از ذخیره بررسی کنید.'}</div><div className="modal-actions"><button type="button" className="btn secondary" disabled={busy} onClick={close}>انصراف</button><button type="submit" className="btn primary" disabled={busy || !staff.length}>{busy ? 'در حال ثبت...' : 'ذخیره معلومات'} <Check size={17}/></button></div></form>
+    </div>{duplicates > 0 && <div className="form-hint salary-warning" role="status">هشدار: {duplicates} پرداخت دیگر برای این کارمند و دوره در فهرست فعلی وجود دارد. ثبت پرداخت قسطی مسدود نیست؛ پیش از ذخیره تکراری‌نبودن را بررسی کنید. این هشدار کنترل هم‌زمان چند کاربر نیست.</div>}<div className="form-hint">مجموع = معاش ثابت + پاداش + اضافه‌کاری − جریمه. تقویم دوره مستقل از تاریخ پرداخت است؛ با تغییر تقویم دوره، سال و ماه خودکار تبدیل نمی‌شوند.{salary === 'new' ? ' با انتخاب کارمند، معاش ثابت از معلومات فعلی او پیشنهاد می‌شود.' : ' تغییر کارمند در ویرایش، معاش ثابت ثبت‌شده را عوض نمی‌کند.'}{negative && ' هشدار: مجموع منفی است؛ پیش از ذخیره بررسی کنید.'}</div><div className="modal-actions"><button type="button" className="btn secondary" disabled={busy} onClick={close}>انصراف</button><button type="submit" className="btn primary" disabled={busy || !staff.length}>{busy ? 'در حال ثبت...' : 'ذخیره معلومات'} <Check size={17}/></button></div></form>
   </div></div>;
 }
 

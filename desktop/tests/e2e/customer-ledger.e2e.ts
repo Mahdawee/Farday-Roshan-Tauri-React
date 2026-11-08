@@ -202,3 +202,23 @@ test('salary snapshots base and keeps period calendar explicit', async ({ page }
   await dialog.getByLabel('نوع پرداخت').selectOption('transfer'); await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
   row=page.getByRole('row').filter({hasText:'احمد احمدی'}); await expect(row).toContainText('حواله'); await expect(row).toContainText('-4,874.50');
 });
+
+
+test('warns about another salary in the same employee period without blocking installments', async ({ page }) => {
+  await page.goto('/'); await page.getByRole('button', { name:'معاشات', exact:true }).click();
+  await page.getByRole('button', { name:'پرداخت معاش جدید' }).click();
+  let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('سال دوره').fill('۱۴۰۴'); await dialog.getByLabel('ماه دوره').selectOption('1');
+  await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
+  const row=page.getByRole('row').filter({hasText:'احمد احمدی'});
+  await row.getByRole('button', { name:'ویرایش' }).click(); dialog=page.getByRole('dialog');
+  await expect(dialog.locator('.salary-warning')).toHaveCount(0);
+  await dialog.getByRole('button', { name:'انصراف' }).click();
+  await page.getByRole('button', { name:'پرداخت معاش جدید' }).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('سال دوره').fill('۱۴۰۴'); await dialog.getByLabel('ماه دوره').selectOption('1');
+  await expect(dialog.getByRole('status')).toContainText('پرداخت دیگر');
+  await dialog.getByLabel('تقویم دوره').selectOption('miladi'); await expect(dialog.locator('.salary-warning')).toHaveCount(0);
+  await dialog.getByLabel('تقویم دوره').selectOption('shamsi');
+  await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
+  await expect(page.getByRole('row').filter({hasText:'احمد احمدی'})).toHaveCount(2);
+});
