@@ -331,3 +331,17 @@ test('transaction filters apply to customers and sale type or receipt source', a
   await expect(page.getByText('1 رکورد مطابق فیلترها')).toBeVisible();
   await expect(page.getByRole('row').filter({hasText:'امانت'})).toHaveCount(1);
 });
+
+test('read-only sale and receipt details show the recorded components',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'فروشات',exact:true}).click();
+  await page.getByRole('button',{name:'فروش جدید',exact:true}).click(); let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('متراژ (متر مکعب)').fill('1.250'); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('200'); await dialog.getByLabel('کرایه فی متر (افغانی)').fill('30');
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  let row=page.getByRole('row').filter({hasText:'287.50'}); await row.getByRole('button',{name:'جزئیات'}).click(); dialog=page.getByRole('dialog');
+  await expect(dialog).toContainText('1.250'); await expect(dialog).toContainText('200'); await expect(dialog).toContainText('30'); await expect(dialog).toContainText('287.50');
+  await dialog.getByText('بستن',{exact:true}).click();
+  await page.getByRole('button',{name:'رسیدات',exact:true}).click(); await page.getByRole('button',{name:'رسید جدید'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('مبلغ رسید (افغانی)').fill('1.25'); await dialog.getByLabel('منبع رسید').selectOption('deposit'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  row=page.getByRole('row').filter({hasText:'1.25'}); await row.getByRole('button',{name:'جزئیات'}).click(); dialog=page.getByRole('dialog');
+  await expect(dialog).toContainText('امانت'); await expect(dialog).toContainText('تأثیر ندارد'); await expect(dialog).toContainText('1.25');
+});

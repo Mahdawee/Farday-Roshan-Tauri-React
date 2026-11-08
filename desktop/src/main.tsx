@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowDownLeft, ArrowLeft, ArrowUpLeft, Archive, Box, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock3, FileBarChart, LayoutDashboard, Menu, Package, Plus, ReceiptText, Search, Settings, ShieldCheck, ShoppingCart, Users, Wallet, X } from 'lucide-react';
-import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, TransactionPage, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
+import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, TransactionPage, TransactionDetail, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
 import { inDesktop, store } from './store';
 import { BackupInfo, chooseBackup, createBackup, restoreBackup } from './backup';
 import { attendanceLabels, summarizeAttendance } from './attendance';
@@ -95,7 +95,7 @@ function Entries({ entries,loading,calendar }: { entries: Snapshot['entries']; l
 
 function TransactionList({ kind, calendar, revision }: { kind: 'sale' | 'receipt'; calendar: Calendar; revision: Snapshot }) {
   const [search,setSearch]=useState(''); const [from,setFrom]=useState(''); const [to,setTo]=useState(''); const [page,setPage]=useState(0);
-  const [customer,setCustomer]=useState(''); const [subtype,setSubtype]=useState('');
+  const [customer,setCustomer]=useState(''); const [subtype,setSubtype]=useState(''); const [detailId,setDetailId]=useState<string | null>(null);
   const [data,setData]=useState<TransactionPage | null>(null); const [error,setError]=useState(''); const [loading,setLoading]=useState(true);
   useEffect(()=>{
     let active=true;
@@ -112,11 +112,25 @@ function TransactionList({ kind, calendar, revision }: { kind: 'sale' | 'receipt
   return <section className="panel listing"><div className="panel-head list-header"><div><h2>{kind === 'sale' ? 'فهرست فروشات' : 'فهرست رسیدات'}</h2><p>{data ? `${data.total} رکورد مطابق فیلترها · هر صفحه ${data.page_size} رکورد` : error ? 'فیلترها را بررسی کنید' : 'در حال بررسی فهرست'} · تغییر تقویم فیلترها را پاک می‌کند.</p></div><label className="search"><Search size={17}/><input value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}} placeholder="جستجو..." aria-label="جستجو"/></label></div>
     <div className="expense-filters"><Field label={`از تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={from} onChange={e=>{setFrom(e.target.value);setPage(0);}} placeholder={calendar === 'shamsi' ? '1405/01/01' : '2026/03/21'}/></Field><Field label={`تا تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={to} onChange={e=>{setTo(e.target.value);setPage(0);}} placeholder={calendar === 'shamsi' ? '1405/12/29' : '2027/03/20'}/></Field><Field label="فیلتر مشتری"><select value={customer} onChange={e=>{setCustomer(e.target.value);setPage(0);}}><option value="">همه</option>{revision.customers.map(c=><option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}</select></Field><Field label={kind === 'sale' ? 'فیلتر نوع پرداخت' : 'فیلتر منبع رسید'}><select value={subtype} onChange={e=>{setSubtype(e.target.value);setPage(0);}}><option value="">همه</option>{kind === 'sale' ? <><option value="cash">نقده</option><option value="credit">باقی</option></> : <><option value="debt">باقی داری</option><option value="deposit">امانت</option><option value="statement">بیانیه</option><option value="advance">پیش پرداخت</option></>}</select></Field></div>
     {error && <div className="error expense-feedback" role="alert">{error}</div>}
-    {data && <div className="table-wrap"><table><thead><tr><th>مشتری</th><th>کد مشتری</th><th>شرح</th><th>تاریخ</th><th>مبلغ</th></tr></thead><tbody>{data.rows.map(e=><tr key={e.id}><td>{e.customer_name}</td><td><span className="code" dir="ltr">{e.customer_code}</span></td><td>{e.detail}</td><td><span className="code" dir="ltr">{displayCalendarDate(e.date,calendar)}</span></td><td><b dir="ltr">{displayMoney(e.amount)}</b> <span className="unit">افغانی</span></td></tr>)}</tbody></table>{!data.rows.length && <div className="empty">رکوردی برای نمایش وجود ندارد.</div>}</div>}
+    {data && <div className="table-wrap"><table><thead><tr><th>مشتری</th><th>کد مشتری</th><th>شرح</th><th>تاریخ</th><th>مبلغ</th><th>عملیات</th></tr></thead><tbody>{data.rows.map(e=><tr key={e.id}><td>{e.customer_name}</td><td><span className="code" dir="ltr">{e.customer_code}</span></td><td>{e.detail}</td><td><span className="code" dir="ltr">{displayCalendarDate(e.date,calendar)}</span></td><td><b dir="ltr">{displayMoney(e.amount)}</b> <span className="unit">افغانی</span></td><td><button className="text-button" onClick={()=>setDetailId(e.id)}>جزئیات</button></td></tr>)}</tbody></table>{!data.rows.length && <div className="empty">رکوردی برای نمایش وجود ندارد.</div>}</div>}
     {loading && <div className="empty" role="status">در حال بارگذاری...</div>}
     <div className="pagination"><button className="btn secondary" disabled={loading || page===0} onClick={()=>setPage(p=>p-1)}>صفحهٔ قبلی</button><span>صفحهٔ {page+1}</span><button className="btn secondary" disabled={loading || !data || (page+1)*data.page_size>=data.total} onClick={()=>setPage(p=>p+1)}>صفحهٔ بعدی</button></div>
     <div className="form-hint">جستجو در نام و کد مشتری، شرح و تاریخ انجام می‌شود؛ برای جستجوی تاریخ، تاریخ کامل را در تقویم انتخاب‌شده وارد کنید. تغییر اطلاعات هم‌زمان می‌تواند ترتیب صفحه‌ها را عوض کند.</div>
+    {detailId && <TransactionDetailModal kind={kind} id={detailId} calendar={calendar} close={()=>setDetailId(null)}/>}
   </section>;
+}
+function TransactionDetailModal({ kind, id, calendar, close }: {kind:'sale'|'receipt'; id:string; calendar:Calendar; close:()=>void}) {
+  const [detail,setDetail]=useState<TransactionDetail | null>(null); const [error,setError]=useState('');
+  useEffect(()=>{ let active=true; store.transactionDetail(kind,id).then(value=>{if(active)setDetail(value);}).catch(e=>{if(active)setError(String(e));}); return ()=>{active=false;}; },[kind,id]);
+  const sourceLabels={debt:'باقی داری',deposit:'امانت',statement:'بیانیه',advance:'پیش پرداخت'};
+  return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)close();}}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="transaction-detail-title"><div className="modal-head"><div><span className="eyebrow"><span/> جزئیات عملیات</span><h2 id="transaction-detail-title">{kind==='sale' ? 'جزئیات فروش' : 'جزئیات رسید'}</h2><p>اطلاعات فعلی این رکورد؛ ویرایش و شمارهٔ سند رسمی هنوز آماده نیست.</p></div><button className="icon-button" aria-label="بستن" onClick={close}><X size={20}/></button></div>
+    {error && <div className="error" role="alert">{error}</div>}{!detail && !error && <div className="empty" role="status">در حال بارگذاری...</div>}
+    {detail && <><div className="ledger-summary"><div><span>مشتری</span><b>{detail.customer_name} <small dir="ltr">{detail.customer_code}</small></b></div><div><span>تاریخ</span><b dir="ltr">{displayCalendarDate(detail.date,calendar)}</b></div></div>
+      <div className="table-wrap"><table><tbody>{detail.kind === 'sale' ? <><tr><th>نوع مواد</th><td>{detail.material}</td></tr><tr><th>متراژ (متر مکعب)</th><td dir="ltr" className="ltr-cell">{detail.volume}</td></tr><tr><th>قیمت فی متر</th><td dir="ltr" className="ltr-cell">{displayMoney(detail.unit_price)} افغانی</td></tr><tr><th>کرایه فی متر</th><td dir="ltr" className="ltr-cell">{displayMoney(detail.freight)} افغانی</td></tr><tr><th>نوع پرداخت</th><td>{detail.payment_type==='credit' ? 'باقی' : 'نقده'}</td></tr><tr><th>مجموع فروش</th><td dir="ltr" className="ltr-cell">{displayMoney(detail.total)} افغانی</td></tr></> : <><tr><th>منبع رسید</th><td>{sourceLabels[detail.source]}</td></tr><tr><th>مبلغ رسید</th><td dir="ltr" className="ltr-cell">{displayMoney(detail.amount)} افغانی</td></tr></>}</tbody></table></div>
+      {detail.kind === 'receipt' && detail.source === 'deposit' && <div className="form-hint">رسید امانت در بدهی مشتری تأثیر ندارد.</div>}
+      <div className="form-hint">شناسهٔ داخلی: <span dir="ltr">{detail.id}</span> · این شناسه شمارهٔ رسمی سند نیست.</div></>}
+    <div className="modal-actions"><button className="btn secondary" onClick={close}>بستن</button></div>
+  </div></div>;
 }
 
 function AttendanceList({ records, staff, calendar, loading, edit }: { records: Attendance[]; staff: Employee[]; calendar: Calendar; loading: boolean; edit:(record:Attendance)=>void }) {

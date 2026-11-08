@@ -164,3 +164,18 @@ describe('paged transaction history', () => {
     await expect(s.transactions({...query,from:'2026-01-01',to:'2024-01-01'})).rejects.toThrow();
   });
 });
+
+describe('transaction details',()=>{
+  it('shows source components exactly and reports missing or wrong-kind records',async()=>{
+    const s=createDemoStore(false); await s.addCustomer({code:'C1',name:'مشتری',phone:'',opening:'0'});
+    const id=(await s.snapshot()).customers[0].id;
+    await s.addSale({customer_id:id,date:'2026-01-01',material:'ریگ',volume:'1.250',unit_price:'200',freight:'30',payment_type:'credit'});
+    await s.addReceipt({customer_id:id,date:'2026-01-02',amount:'1.25',source:'deposit'});
+    const rows=(await s.snapshot()).entries; const sale=rows.find(e=>e.kind==='sale')!; const receipt=rows.find(e=>e.kind==='receipt')!;
+    expect(await s.transactionDetail('sale',sale.id)).toMatchObject({volume:'1.250',unit_price:'200.00',freight:'30.00',total:'287.50',payment_type:'credit'});
+    expect(await s.transactionDetail('receipt',receipt.id)).toMatchObject({amount:'1.25',source:'deposit'});
+    await expect(s.transactionDetail('receipt',sale.id)).rejects.toThrow();
+    await s.updateCustomer(id,{code:'C2',name:'نام جدید',phone:'',opening:'0'});
+    expect(await s.transactionDetail('sale',sale.id)).toMatchObject({customer_code:'C2',customer_name:'نام جدید'});
+  });
+});

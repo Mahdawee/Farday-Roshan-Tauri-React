@@ -1,10 +1,11 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { normalizeDateDigits } from './calendar';
-import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store } from './domain';
+import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store } from './domain';
 
 const tauriStore: Store = {
   snapshot: () => invoke<Snapshot>('snapshot'),
   transactions: query => invoke<TransactionPage>('list_transactions', { query }),
+  transactionDetail: (kind,id) => invoke<TransactionDetail>('transaction_detail', { kind,id }),
   attendance: () => invoke<Attendance[]>('list_attendance'),
   createAttendanceBatch: (workDate, rows) => invoke('create_attendance_batch', { workDate, rows }),
   saveAttendance: (id, input) => invoke('save_attendance', { id, input }),
@@ -32,11 +33,11 @@ export function createDemoStore(seed = true): Store {
   const attendance: Attendance[] = [];
   const salaries: Salary[] = [];
   const expenses: Expense[] = [];
-  type DemoEntry = Entry & { customer_id: string; affects_balance: boolean; subtype: string };
+  type DemoEntry = Entry & { customer_id: string; affects_balance: boolean; subtype: string; sale?: { material:string; volume:string; unit_price:string; freight:string } };
   const entries: DemoEntry[] = [
-    { id: 'demo-e1', customer_id: 'demo-1', subtype: 'credit', affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
+    { id: 'demo-e1', customer_id: 'demo-1', subtype: 'credit', sale: {material:'ماسه اول',volume:'90.000',unit_price:'600.00',freight:'0.00'}, affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
     { id: 'demo-e2', customer_id: 'demo-1', subtype: 'debt', affects_balance: true, kind: 'receipt', date: '2026-11-07', customer_name: 'شرکت ساختمانی امید', detail: 'باقی داری', amount: '12000.00' },
-    { id: 'demo-e3', customer_id: 'demo-2', subtype: 'credit', affects_balance: true, kind: 'sale', date: '2026-11-06', customer_name: 'احمد رحمانی', detail: 'ریگ · باقی', amount: '18000.00' },
+    { id: 'demo-e3', customer_id: 'demo-2', subtype: 'credit', sale: {material:'ریگ',volume:'30.000',unit_price:'600.00',freight:'0.00'}, affects_balance: true, kind: 'sale', date: '2026-11-06', customer_name: 'احمد رحمانی', detail: 'ریگ · باقی', amount: '18000.00' },
   ];
   let credit = 7200000n, receipts = 1200000n;
   if (!seed) { customers.length = 0; entries.length = 0; credit = 0n; receipts = 0n; }
@@ -73,6 +74,14 @@ export function createDemoStore(seed = true): Store {
       const search=lowerAscii(query.search.trim());
       const rows=entries.filter(e=>e.kind===query.kind && (!query.customer_id || e.customer_id===query.customer_id) && (!query.subtype || e.subtype===query.subtype) && (!query.from || e.date>=query.from) && (!query.to || e.date<=query.to)).map(e=>({...e,customer_code:customers.find(c=>c.id===e.customer_id)?.code || ''})).filter(e=>[e.customer_name,e.customer_code,e.detail,e.date].some(s=>lowerAscii(s).includes(search))).sort((a,b)=>b.date.localeCompare(a.date));
       return structuredClone({ rows:rows.slice(query.page*25,query.page*25+25), total:rows.length, page:query.page, page_size:25 });
+    },
+    async transactionDetail(kind,id) {
+      const entry=entries.find(e=>e.kind===kind && e.id===id); if (!entry) throw new Error('عملیات انتخاب‌شده وجود ندارد.');
+      const customer=customers.find(c=>c.id===entry.customer_id); if (!customer) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
+      const common={id:entry.id,date:entry.date,customer_name:customer.name,customer_code:customer.code};
+      if (kind==='sale' && entry.sale) return structuredClone({kind:'sale',...common,...entry.sale,total:entry.amount,payment_type:entry.subtype as 'cash' | 'credit'});
+      if (kind==='receipt') return structuredClone({kind:'receipt',...common,amount:entry.amount,source:entry.subtype as ReceiptInput['source']});
+      throw new Error('نوع عملیات معتبر نیست.');
     },
     async attendance() {
       return structuredClone(attendance.map(a => { const e=staff.find(employee=>employee.id===a.employee_id); return e ? {...a,employee_name:e.name,employee_code:e.code} : a; }).sort((a,b)=>b.work_date.localeCompare(a.work_date)));
@@ -189,7 +198,7 @@ export function createDemoStore(seed = true): Store {
       const total = saleTotal(input.volume, input.unit_price, input.freight);
       const c = update(input.customer_id, input.payment_type === 'credit' ? total : 0n);
       if (input.payment_type === 'credit') credit += total;
-      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.payment_type, affects_balance: input.payment_type === 'credit', kind: 'sale', date: input.date, customer_name: c.name, detail: `${input.material} · ${input.payment_type === 'credit' ? 'باقی' : 'نقده'}`, amount: formatScaled(total) });
+      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.payment_type, sale: {material:input.material.trim(),volume:formatScaled(parseScaled(input.volume,3),3),unit_price:formatScaled(parseScaled(input.unit_price,2)),freight:formatScaled(parseScaled(input.freight,2))}, affects_balance: input.payment_type === 'credit', kind: 'sale', date: input.date, customer_name: c.name, detail: `${input.material} · ${input.payment_type === 'credit' ? 'باقی' : 'نقده'}`, amount: formatScaled(total) });
     },
     async addReceipt(input) {
       validateDate(input.date);
@@ -206,6 +215,7 @@ export function createDemoStore(seed = true): Store {
 export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
+  transactionDetail: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   transactions: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   snapshot: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   createAttendanceBatch: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

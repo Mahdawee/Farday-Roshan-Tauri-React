@@ -83,6 +83,9 @@ async fn create_attendance_batch(db: State<'_, Database>, work_date: String, row
 #[tauri::command]
 async fn list_transactions(db: State<'_, Database>, query: transactions::TransactionQuery) -> Result<transactions::TransactionPage, String> { transactions::list(&db.0, query).await }
 
+#[tauri::command]
+async fn transaction_detail(db: State<'_, Database>, kind: String, id: String) -> Result<transactions::TransactionDetail, String> { transactions::detail(&db.0, kind, id).await }
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -94,7 +97,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }

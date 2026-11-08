@@ -62,3 +62,37 @@ mod tests {
         db.close().await; std::fs::remove_file(path).unwrap();
     }
 }
+
+/// Read-only source details; amounts remain decimal strings at the UI boundary.
+#[derive(Serialize)]
+#[serde(tag="kind", rename_all="snake_case")]
+pub(crate) enum TransactionDetail {
+    Sale { id:String, date:String, customer_name:String, customer_code:String, material:String, volume:String, unit_price:String, freight:String, total:String, payment_type:String },
+    Receipt { id:String, date:String, customer_name:String, customer_code:String, amount:String, source:String },
+}
+pub(crate) async fn detail(db: &SqlitePool, kind: String, id: String) -> Result<TransactionDetail, String> {
+    if id.is_empty() || id.len()>80 { return Err("شناسهٔ عملیات معتبر نیست.".into()); }
+    if kind == "sale" {
+        let r=sqlx::query("SELECT s.id,s.sale_date,c.name AS customer_name,c.code AS customer_code,s.material,s.volume_milli,s.unit_price_cents,s.freight_cents,s.total_cents,s.payment_type FROM sales s JOIN customers c ON c.id=s.customer_id WHERE s.id=?").bind(id).fetch_optional(db).await.map_err(error)?.ok_or("فروش انتخاب‌شده وجود ندارد.")?;
+        let volume:i64=r.try_get("volume_milli").map_err(error)?;
+        Ok(TransactionDetail::Sale { id:r.try_get("id").map_err(error)?,date:r.try_get("sale_date").map_err(error)?,customer_name:r.try_get("customer_name").map_err(error)?,customer_code:r.try_get("customer_code").map_err(error)?,material:r.try_get("material").map_err(error)?,volume:format!("{}.{:03}",volume/1000,volume%1000),unit_price:money(r.try_get("unit_price_cents").map_err(error)?),freight:money(r.try_get("freight_cents").map_err(error)?),total:money(r.try_get("total_cents").map_err(error)?),payment_type:r.try_get("payment_type").map_err(error)? })
+    } else if kind == "receipt" {
+        let r=sqlx::query("SELECT r.id,r.receipt_date,c.name AS customer_name,c.code AS customer_code,r.amount_cents,r.source FROM receipts r JOIN customers c ON c.id=r.customer_id WHERE r.id=?").bind(id).fetch_optional(db).await.map_err(error)?.ok_or("رسید انتخاب‌شده وجود ندارد.")?;
+        Ok(TransactionDetail::Receipt {id:r.try_get("id").map_err(error)?,date:r.try_get("receipt_date").map_err(error)?,customer_name:r.try_get("customer_name").map_err(error)?,customer_code:r.try_get("customer_code").map_err(error)?,amount:money(r.try_get("amount_cents").map_err(error)?),source:r.try_get("source").map_err(error)?})
+    } else { Err("نوع عملیات معتبر نیست.".into()) }
+}
+#[cfg(test)]
+mod detail_tests {
+    use super::*; use crate::service::open_database; use uuid::Uuid;
+    #[tokio::test]
+    async fn details_are_exact_and_reject_wrong_kind_and_missing_record() {
+        let path=std::env::temp_dir().join(format!("transaction-details-{}.sqlite3",Uuid::new_v4())); let db=open_database(path.clone()).await.unwrap();
+        sqlx::query("INSERT INTO customers(id,code,name) VALUES('c','C1','مشتری')").execute(&db).await.unwrap();
+        sqlx::query("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2026-01-01','ریگ',1250,20000,3000,28750,'credit')").execute(&db).await.unwrap();
+        sqlx::query("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c','2026-01-02',125,'deposit')").execute(&db).await.unwrap();
+        match detail(&db,"sale".into(),"s".into()).await.unwrap() { TransactionDetail::Sale {volume,unit_price,freight,total,..} => assert_eq!((volume.as_str(),unit_price.as_str(),freight.as_str(),total.as_str()),("1.250","200.00","30.00","287.50")), _=>panic!("wrong kind") }
+        match detail(&db,"receipt".into(),"r".into()).await.unwrap() { TransactionDetail::Receipt {source,amount,..} => assert_eq!((source.as_str(),amount.as_str()),("deposit","1.25")), _=>panic!("wrong kind") }
+        assert!(detail(&db,"receipt".into(),"s".into()).await.is_err()); assert!(detail(&db,"invalid".into(),"s".into()).await.is_err());
+        db.close().await; std::fs::remove_file(path).unwrap();
+    }
+}
