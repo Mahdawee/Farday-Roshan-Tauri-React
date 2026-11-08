@@ -366,3 +366,17 @@ test('editing sale and receipt updates customer ledgers', async ({page})=>{
   await page.getByRole('button',{name:'مشتریان',exact:true}).click(); row=page.getByRole('row').filter({hasText:'دوم ویرایش'}); await expect(row).toContainText('250');
   await row.getByRole('button',{name:'کارت حساب'}).click(); await expect(page.getByRole('dialog')).toContainText('250');
 });
+
+test('monthly attendance report counts only recorded dates and respects calendar months',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'حضور و غیاب',exact:true}).click();
+  for (const [date,status,overtime] of [['1404/01/01','present','1.25'],['1404/01/02','absent','0.50'],['1404/02/01','leave','2']]) {
+    await page.getByRole('button',{name:'ثبت حضور جدید'}).click(); const dialog=page.getByRole('dialog');
+    await dialog.getByLabel('تاریخ کار (شمسی)').fill(date); await dialog.getByLabel('وضعیت حضور').selectOption(status); await dialog.getByLabel('اضافه‌کاری (ساعت)').fill(overtime); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  }
+  await page.getByRole('button',{name:'راپور حضور ماهانه',exact:true}).click(); await page.getByLabel('ماه (شمسی)').fill('۱۴۰۴/۰۱');
+  const row=page.getByRole('row').filter({hasText:'احمد احمدی'}); const cells=row.getByRole('cell');
+  await expect(cells.nth(2)).toHaveText('2'); await expect(cells.nth(3)).toHaveText('1'); await expect(cells.nth(4)).toHaveText('1'); await expect(cells.nth(5)).toHaveText('0'); await expect(cells.nth(9)).toHaveText('1.75');
+  await expect(page.getByText('روزهای ثبت‌نشده نه غایب', {exact:false})).toBeVisible();
+  await page.getByLabel('ماه (شمسی)').fill('1404/13'); await expect(page.getByRole('alert')).toContainText('معتبر نیست');
+  await page.getByLabel('تقویم نمایش').selectOption('miladi'); await page.getByLabel('ماه (میلادی)').fill('2025/03'); await expect(cells.nth(2)).toHaveText('2');
+});

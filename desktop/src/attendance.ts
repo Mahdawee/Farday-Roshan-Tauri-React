@@ -18,3 +18,22 @@ export function summarizeAttendance(records: Attendance[], search: string, from:
   for (const row of rows) counts[row.status]++;
   return {rows,counts,overtime:formatScaled(rows.reduce((sum,a)=>sum+parseScaled(a.overtime,2),0n))};
 }
+
+/** Month boundaries are inclusive and use the selected calendar; missing records stay missing. */
+export function monthlyAttendance(records: Attendance[], staff: import('./domain').Employee[], rawMonth: string, calendar: Calendar) {
+  const month=normalizeDateDigits(rawMonth.trim());
+  if (!/^\d{4}\/\d{2}$/.test(month)) throw new Error('ماه را به شکل سال/ماه وارد کنید.');
+  const from=parseCalendarDate(`${month}/01`,calendar);
+  let to: string | null=null;
+  for (let day=31;day>=28;day--) { to=parseCalendarDate(`${month}/${day}`,calendar); if (to) break; }
+  if (!from || !to) throw new Error('ماه انتخاب‌شده معتبر نیست.');
+  const grouped=new Map<string,Attendance[]>();
+  for (const row of records) if (row.work_date>=from && row.work_date<=to) { const list=grouped.get(row.employee_id) ?? []; list.push(row); grouped.set(row.employee_id,list); }
+  const rows=staff.map(employee=>{
+    const data=grouped.get(employee.id) ?? [];
+    const counts:Record<AttendanceStatus,number>={present:0,absent:0,leave:0,sick:0,holiday:0,friday:0};
+    for (const item of data) counts[item.status]++;
+    return {employee,counts,recorded:data.length,overtime:formatScaled(data.reduce((sum,item)=>sum+parseScaled(item.overtime,2),0n))};
+  });
+  return {from,to,rows};
+}

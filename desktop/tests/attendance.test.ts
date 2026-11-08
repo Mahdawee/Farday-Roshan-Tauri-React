@@ -15,3 +15,15 @@ describe('attendance filters and recorded-day summaries',()=>{
     expect(()=>summarizeAttendance(rows,'','2025/03/22','2025/03/21','miladi','','')).toThrow();
   });
 });
+
+it('monthly report respects Shamsi and Gregorian month boundaries, including leap days',async()=>{
+  const {monthlyAttendance}=await import('../src/attendance');
+  const staff=[{id:'e1',code:'E1',name:'اول',father_name:'',job_title:'',hire_date:null,base_salary:'0.00',phone:'',status:'active' as const},{id:'e2',code:'E2',name:'دوم',father_name:'',job_title:'',hire_date:null,base_salary:'0.00',phone:'',status:'inactive' as const}];
+  const data=[...rows,{...first,id:'c',work_date:'2025-04-20',status:'leave' as const},{...first,id:'d',work_date:'2025-04-21',status:'sick' as const}];
+  const report=monthlyAttendance(data,staff,'۱۴۰۴/۰۱','shamsi');
+  expect([report.from,report.to]).toEqual(['2025-03-21','2025-04-20']);
+  expect(report.rows[0].recorded).toBe(2); expect(report.rows[0].counts.leave).toBe(1); expect(report.rows[1].counts.absent).toBe(1);
+  expect(monthlyAttendance([],staff,'2024/02','miladi').to).toBe('2024-02-29');
+  expect(monthlyAttendance([],staff,'1403/12','shamsi').to).toBe('2025-03-20');
+  expect(()=>monthlyAttendance(data,staff,'1404/13','shamsi')).toThrow();
+});
