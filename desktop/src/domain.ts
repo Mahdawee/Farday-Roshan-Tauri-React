@@ -1,4 +1,4 @@
-export interface TransactionQuery { kind: 'sale' | 'receipt'; page: number; search: string; from: string | null; to: string | null }
+export interface TransactionQuery { kind: 'sale' | 'receipt'; page: number; search: string; from: string | null; to: string | null; customer_id: string | null; subtype: string | null }
 export interface TransactionRow extends Entry { customer_code: string }
 export interface TransactionPage { rows: TransactionRow[]; total: number; page: number; page_size: number }
 export type AttendanceStatus = 'present' | 'absent' | 'leave' | 'sick' | 'holiday' | 'friday';

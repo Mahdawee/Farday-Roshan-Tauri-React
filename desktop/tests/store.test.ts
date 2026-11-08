@@ -151,12 +151,14 @@ describe('paged transaction history', () => {
     const id=(await s.snapshot()).customers[0].id;
     for(let i=0;i<130;i++) await s.addSale({customer_id:id,date:i<25?'2024-01-01':'2026-01-01',material:i===0?'ویژه %':'ریگ',volume:'1',unit_price:'1',freight:'0',payment_type:'credit'});
     await s.addReceipt({customer_id:id,date:'2026-02-01',amount:'1.25',source:'deposit'});
-    const query={kind:'sale' as const,page:0,search:'',from:null,to:null};
+    const query={kind:'sale' as const,page:0,search:'',from:null,to:null,customer_id:null,subtype:null};
     expect((await s.transactions(query)).total).toBe(130);
     expect((await s.transactions({...query,page:5})).rows).toHaveLength(5);
     const filtered=await s.transactions({...query,search:'%'}); expect(filtered.total).toBe(1); expect(filtered.rows[0].detail).toContain('ویژه');
     expect((await s.transactions({...query,from:'2024-01-01',to:'2024-01-01'})).total).toBe(25);
-    expect((await s.transactions({...query,kind:'receipt'})).rows[0].amount).toBe('1.25');
+    expect((await s.transactions({...query,kind:'receipt',subtype:'deposit',customer_id:id})).rows[0].amount).toBe('1.25');
+    expect((await s.transactions({...query,subtype:'cash'})).total).toBe(0);
+    await expect(s.transactions({...query,kind:'receipt',subtype:'credit'})).rejects.toThrow();
     await expect(s.transactions({...query,page:-1})).rejects.toThrow();
     await expect(s.transactions({...query,from:'2025-02-29'})).rejects.toThrow();
     await expect(s.transactions({...query,from:'2026-01-01',to:'2024-01-01'})).rejects.toThrow();

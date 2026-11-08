@@ -5,7 +5,7 @@ use crate::service::{money, valid_date};
 
 const PAGE_SIZE: i64 = 25;
 #[derive(Deserialize)]
-pub(crate) struct TransactionQuery { kind: String, page: i64, search: String, from: Option<String>, to: Option<String> }
+pub(crate) struct TransactionQuery { kind: String, page: i64, search: String, from: Option<String>, to: Option<String>, customer_id: Option<String>, subtype: Option<String> }
 #[derive(Serialize)]
 pub(crate) struct TransactionRow { id: String, kind: String, date: String, customer_name: String, customer_code: String, detail: String, amount: String }
 #[derive(Serialize)]
@@ -17,25 +17,30 @@ pub(crate) async fn list(db: &SqlitePool, q: TransactionQuery) -> Result<Transac
     if let Some(ref from)=q.from { valid_date(from)?; }
     if let Some(ref to)=q.to { valid_date(to)?; }
     if matches!((&q.from, &q.to), (Some(from), Some(to)) if from > to) { return Err("تاریخ آغاز نباید پس از تاریخ پایان باشد.".into()); }
+    if let Some(ref customer_id)=q.customer_id { if customer_id.trim().is_empty() || customer_id.len()>80 { return Err("مشتری انتخاب‌شده معتبر نیست.".into()); } }
+    if let Some(ref subtype)=q.subtype {
+        let valid = match q.kind.as_str() { "sale" => matches!(subtype.as_str(), "cash" | "credit"), "receipt" => matches!(subtype.as_str(), "debt" | "deposit" | "statement" | "advance"), _ => false };
+        if !valid { return Err("فیلتر نوع عملیات معتبر نیست.".into()); }
+    }
     // Only these fixed fragments can become SQL; all user values remain parameters.
     let select = match q.kind.as_str() {
-        "sale" => "SELECT s.id, 'sale' AS kind, s.sale_date AS date, c.name AS customer_name, c.code AS customer_code, s.material || ' · ' || CASE s.payment_type WHEN 'credit' THEN 'باقی' ELSE 'نقده' END AS detail, s.total_cents AS amount, s.created_at AS created_at FROM sales s JOIN customers c ON c.id=s.customer_id",
-        "receipt" => "SELECT r.id, 'receipt' AS kind, r.receipt_date AS date, c.name AS customer_name, c.code AS customer_code, CASE r.source WHEN 'debt' THEN 'باقی داری' WHEN 'deposit' THEN 'امانت' WHEN 'statement' THEN 'بیانیه' ELSE 'پیش پرداخت' END AS detail, r.amount_cents AS amount, r.created_at AS created_at FROM receipts r JOIN customers c ON c.id=r.customer_id",
+        "sale" => "SELECT s.id, 'sale' AS kind, s.customer_id, s.payment_type AS subtype, s.sale_date AS date, c.name AS customer_name, c.code AS customer_code, s.material || ' · ' || CASE s.payment_type WHEN 'credit' THEN 'باقی' ELSE 'نقده' END AS detail, s.total_cents AS amount, s.created_at AS created_at FROM sales s JOIN customers c ON c.id=s.customer_id",
+        "receipt" => "SELECT r.id, 'receipt' AS kind, r.customer_id, r.source AS subtype, r.receipt_date AS date, c.name AS customer_name, c.code AS customer_code, CASE r.source WHEN 'debt' THEN 'باقی داری' WHEN 'deposit' THEN 'امانت' WHEN 'statement' THEN 'بیانیه' ELSE 'پیش پرداخت' END AS detail, r.amount_cents AS amount, r.created_at AS created_at FROM receipts r JOIN customers c ON c.id=r.customer_id",
         _ => return Err("نوع عملیات معتبر نیست.".into()),
     };
-    let where_clause = " WHERE (?1 IS NULL OR date >= ?1) AND (?2 IS NULL OR date <= ?2) AND (instr(lower(customer_name),lower(?3))>0 OR instr(lower(customer_code),lower(?3))>0 OR instr(lower(detail),lower(?3))>0 OR instr(date,?3)>0)";
+    let where_clause = " WHERE (?1 IS NULL OR date >= ?1) AND (?2 IS NULL OR date <= ?2) AND (?4 IS NULL OR customer_id = ?4) AND (?5 IS NULL OR subtype = ?5) AND (instr(lower(customer_name),lower(?3))>0 OR instr(lower(customer_code),lower(?3))>0 OR instr(lower(detail),lower(?3))>0 OR instr(date,?3)>0)";
     let count_query=format!("WITH records AS ({select}) SELECT COUNT(*) FROM records{where_clause}");
-    let rows_query=format!("WITH records AS ({select}) SELECT id,kind,date,customer_name,customer_code,detail,amount FROM records{where_clause} ORDER BY date DESC,created_at DESC,id DESC LIMIT ?4 OFFSET ?5");
+    let rows_query=format!("WITH records AS ({select}) SELECT id,kind,date,customer_name,customer_code,detail,amount FROM records{where_clause} ORDER BY date DESC,created_at DESC,id DESC LIMIT ?6 OFFSET ?7");
     let mut tx=db.begin().await.map_err(error)?;
-    let total:i64=sqlx::query_scalar(&count_query).bind(&q.from).bind(&q.to).bind(q.search.trim()).fetch_one(&mut *tx).await.map_err(error)?;
-    let rows=sqlx::query(&rows_query).bind(&q.from).bind(&q.to).bind(q.search.trim()).bind(PAGE_SIZE).bind(q.page*PAGE_SIZE).fetch_all(&mut *tx).await.map_err(error)?;
+    let total:i64=sqlx::query_scalar(&count_query).bind(&q.from).bind(&q.to).bind(q.search.trim()).bind(&q.customer_id).bind(&q.subtype).fetch_one(&mut *tx).await.map_err(error)?;
+    let rows=sqlx::query(&rows_query).bind(&q.from).bind(&q.to).bind(q.search.trim()).bind(&q.customer_id).bind(&q.subtype).bind(PAGE_SIZE).bind(q.page*PAGE_SIZE).fetch_all(&mut *tx).await.map_err(error)?;
     let rows=rows.into_iter().map(|r| Ok(TransactionRow { id:r.try_get("id").map_err(error)?, kind:r.try_get("kind").map_err(error)?, date:r.try_get("date").map_err(error)?, customer_name:r.try_get("customer_name").map_err(error)?, customer_code:r.try_get("customer_code").map_err(error)?, detail:r.try_get("detail").map_err(error)?, amount:money(r.try_get("amount").map_err(error)?) })).collect::<Result<Vec<_>,String>>()?;
     tx.commit().await.map_err(error)?; Ok(TransactionPage { rows, total, page:q.page, page_size:PAGE_SIZE })
 }
 #[cfg(test)]
 mod tests {
     use super::*; use crate::service::open_database; use uuid::Uuid;
-    fn query(kind:&str,page:i64) -> TransactionQuery { TransactionQuery {kind:kind.into(),page,search:String::new(),from:None,to:None} }
+    fn query(kind:&str,page:i64) -> TransactionQuery { TransactionQuery {kind:kind.into(),page,search:String::new(),from:None,to:None,customer_id:None,subtype:None} }
     #[tokio::test]
     async fn paginates_each_kind_and_filters_every_record_not_only_the_dashboard() {
         let path=std::env::temp_dir().join(format!("transaction-pages-{}.sqlite3",Uuid::new_v4())); let db=open_database(path.clone()).await.unwrap();
@@ -49,7 +54,9 @@ mod tests {
         let last=list(&db,query("sale",5)).await.unwrap(); assert_eq!(last.rows.len(),5); assert!(last.rows.iter().any(|r| r.id=="s000"));
         let mut filtered=query("sale",0); filtered.search="%".into(); let found=list(&db,filtered).await.unwrap(); assert_eq!(found.total,1); assert_eq!(found.rows[0].id,"s000");
         let mut filtered=query("sale",0); filtered.from=Some("2024-01-01".into()); filtered.to=Some("2024-01-01".into()); assert_eq!(list(&db,filtered).await.unwrap().total,25);
-        assert_eq!(list(&db,query("receipt",0)).await.unwrap().rows[0].amount,"1.25");
+        let mut filtered=query("sale",0); filtered.customer_id=Some("c".into()); filtered.subtype=Some("credit".into()); assert_eq!(list(&db,filtered).await.unwrap().total,130);
+        let mut filtered=query("receipt",0); filtered.subtype=Some("deposit".into()); assert_eq!(list(&db,filtered).await.unwrap().rows[0].amount,"1.25");
+        let mut filtered=query("receipt",0); filtered.subtype=Some("credit".into()); assert!(list(&db,filtered).await.is_err());
         assert!(list(&db,query("sale",-1)).await.is_err()); assert!(list(&db,query("bad",0)).await.is_err());
         let mut invalid=query("sale",0); invalid.from=Some("2025-02-29".into()); assert!(list(&db,invalid).await.is_err());
         db.close().await; std::fs::remove_file(path).unwrap();

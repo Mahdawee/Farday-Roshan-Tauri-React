@@ -95,6 +95,7 @@ function Entries({ entries,loading,calendar }: { entries: Snapshot['entries']; l
 
 function TransactionList({ kind, calendar, revision }: { kind: 'sale' | 'receipt'; calendar: Calendar; revision: Snapshot }) {
   const [search,setSearch]=useState(''); const [from,setFrom]=useState(''); const [to,setTo]=useState(''); const [page,setPage]=useState(0);
+  const [customer,setCustomer]=useState(''); const [subtype,setSubtype]=useState('');
   const [data,setData]=useState<TransactionPage | null>(null); const [error,setError]=useState(''); const [loading,setLoading]=useState(true);
   useEffect(()=>{
     let active=true;
@@ -105,11 +106,11 @@ function TransactionList({ kind, calendar, revision }: { kind: 'sale' | 'receipt
     const normalized=normalizeDateDigits(search.trim());
     const text=parseCalendarDate(normalized,calendar) ?? normalized;
     setLoading(true);
-    const timer=window.setTimeout(()=>{store.transactions({kind,page,search:text,from:start,to:end}).then(result=>{if(active) setData(result);}).catch(e=>{if(active) setError(String(e));}).finally(()=>{if(active) setLoading(false);});},120);
+    const timer=window.setTimeout(()=>{store.transactions({kind,page,search:text,from:start,to:end,customer_id:customer || null,subtype:subtype || null}).then(result=>{if(active) setData(result);}).catch(e=>{if(active) setError(String(e));}).finally(()=>{if(active) setLoading(false);});},120);
     return ()=>{active=false;window.clearTimeout(timer);};
-  },[kind,page,search,from,to,calendar,revision]);
+  },[kind,page,search,from,to,calendar,revision,customer,subtype]);
   return <section className="panel listing"><div className="panel-head list-header"><div><h2>{kind === 'sale' ? 'فهرست فروشات' : 'فهرست رسیدات'}</h2><p>{data ? `${data.total} رکورد مطابق فیلترها · هر صفحه ${data.page_size} رکورد` : error ? 'فیلترها را بررسی کنید' : 'در حال بررسی فهرست'} · تغییر تقویم فیلترها را پاک می‌کند.</p></div><label className="search"><Search size={17}/><input value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}} placeholder="جستجو..." aria-label="جستجو"/></label></div>
-    <div className="expense-filters"><Field label={`از تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={from} onChange={e=>{setFrom(e.target.value);setPage(0);}} placeholder={calendar === 'shamsi' ? '1405/01/01' : '2026/03/21'}/></Field><Field label={`تا تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={to} onChange={e=>{setTo(e.target.value);setPage(0);}} placeholder={calendar === 'shamsi' ? '1405/12/29' : '2027/03/20'}/></Field></div>
+    <div className="expense-filters"><Field label={`از تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={from} onChange={e=>{setFrom(e.target.value);setPage(0);}} placeholder={calendar === 'shamsi' ? '1405/01/01' : '2026/03/21'}/></Field><Field label={`تا تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={to} onChange={e=>{setTo(e.target.value);setPage(0);}} placeholder={calendar === 'shamsi' ? '1405/12/29' : '2027/03/20'}/></Field><Field label="فیلتر مشتری"><select value={customer} onChange={e=>{setCustomer(e.target.value);setPage(0);}}><option value="">همه</option>{revision.customers.map(c=><option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}</select></Field><Field label={kind === 'sale' ? 'فیلتر نوع پرداخت' : 'فیلتر منبع رسید'}><select value={subtype} onChange={e=>{setSubtype(e.target.value);setPage(0);}}><option value="">همه</option>{kind === 'sale' ? <><option value="cash">نقده</option><option value="credit">باقی</option></> : <><option value="debt">باقی داری</option><option value="deposit">امانت</option><option value="statement">بیانیه</option><option value="advance">پیش پرداخت</option></>}</select></Field></div>
     {error && <div className="error expense-feedback" role="alert">{error}</div>}
     {data && <div className="table-wrap"><table><thead><tr><th>مشتری</th><th>کد مشتری</th><th>شرح</th><th>تاریخ</th><th>مبلغ</th></tr></thead><tbody>{data.rows.map(e=><tr key={e.id}><td>{e.customer_name}</td><td><span className="code" dir="ltr">{e.customer_code}</span></td><td>{e.detail}</td><td><span className="code" dir="ltr">{displayCalendarDate(e.date,calendar)}</span></td><td><b dir="ltr">{displayMoney(e.amount)}</b> <span className="unit">افغانی</span></td></tr>)}</tbody></table>{!data.rows.length && <div className="empty">رکوردی برای نمایش وجود ندارد.</div>}</div>}
     {loading && <div className="empty" role="status">در حال بارگذاری...</div>}

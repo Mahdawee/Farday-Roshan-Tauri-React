@@ -315,3 +315,19 @@ test('sales list pages through its own full history and filters dates', async ({
   await expect(page.getByRole('alert')).toContainText('تاریخ آغاز');
   await expect(page.getByRole('button',{name:'صفحهٔ بعدی'})).toBeDisabled();
 });
+
+test('transaction filters apply to customers and sale type or receipt source', async ({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'فروشات',exact:true}).click();
+  await page.getByLabel('فیلتر مشتری').selectOption({label:'شرکت ساختمانی امید (CUS-001)'});
+  await expect(page.getByText('1 رکورد مطابق فیلترها')).toBeVisible();
+  await page.getByLabel('فیلتر نوع پرداخت').selectOption('cash');
+  await expect(page.getByText('0 رکورد مطابق فیلترها')).toBeVisible();
+  await page.getByRole('button',{name:'رسیدات',exact:true}).click();
+  await page.getByRole('button',{name:'رسید جدید'}).click(); const dialog=page.getByRole('dialog');
+  await dialog.getByLabel('مشتری').selectOption({label:'شرکت ساختمانی امید (CUS-001)'});
+  await dialog.getByLabel('مبلغ رسید (افغانی)').fill('5'); await dialog.getByLabel('منبع رسید').selectOption('deposit');
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByLabel('فیلتر منبع رسید').selectOption('deposit');
+  await expect(page.getByText('1 رکورد مطابق فیلترها')).toBeVisible();
+  await expect(page.getByRole('row').filter({hasText:'امانت'})).toHaveCount(1);
+});

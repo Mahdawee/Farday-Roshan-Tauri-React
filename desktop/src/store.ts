@@ -32,11 +32,11 @@ export function createDemoStore(seed = true): Store {
   const attendance: Attendance[] = [];
   const salaries: Salary[] = [];
   const expenses: Expense[] = [];
-  type DemoEntry = Entry & { customer_id: string; affects_balance: boolean };
+  type DemoEntry = Entry & { customer_id: string; affects_balance: boolean; subtype: string };
   const entries: DemoEntry[] = [
-    { id: 'demo-e1', customer_id: 'demo-1', affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
-    { id: 'demo-e2', customer_id: 'demo-1', affects_balance: true, kind: 'receipt', date: '2026-11-07', customer_name: 'شرکت ساختمانی امید', detail: 'باقی داری', amount: '12000.00' },
-    { id: 'demo-e3', customer_id: 'demo-2', affects_balance: true, kind: 'sale', date: '2026-11-06', customer_name: 'احمد رحمانی', detail: 'ریگ · باقی', amount: '18000.00' },
+    { id: 'demo-e1', customer_id: 'demo-1', subtype: 'credit', affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
+    { id: 'demo-e2', customer_id: 'demo-1', subtype: 'debt', affects_balance: true, kind: 'receipt', date: '2026-11-07', customer_name: 'شرکت ساختمانی امید', detail: 'باقی داری', amount: '12000.00' },
+    { id: 'demo-e3', customer_id: 'demo-2', subtype: 'credit', affects_balance: true, kind: 'sale', date: '2026-11-06', customer_name: 'احمد رحمانی', detail: 'ریگ · باقی', amount: '18000.00' },
   ];
   let credit = 7200000n, receipts = 1200000n;
   if (!seed) { customers.length = 0; entries.length = 0; credit = 0n; receipts = 0n; }
@@ -65,11 +65,13 @@ export function createDemoStore(seed = true): Store {
     },
     async transactions(query) {
       if (!['sale','receipt'].includes(query.kind) || !Number.isInteger(query.page) || query.page<0 || query.page>1000000 || new TextEncoder().encode(query.search).length>320) throw new Error('صفحه یا متن جستجو معتبر نیست.');
+      if (query.customer_id !== null && (!query.customer_id.trim() || new TextEncoder().encode(query.customer_id).length>80)) throw new Error('مشتری انتخاب‌شده معتبر نیست.');
+      if (query.subtype !== null && !(query.kind==='sale' ? ['cash','credit'] : ['debt','deposit','statement','advance']).includes(query.subtype)) throw new Error('فیلتر نوع عملیات معتبر نیست.');
       if (query.from) validateDate(query.from); if (query.to) validateDate(query.to);
       if (query.from && query.to && query.from>query.to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
       const lowerAscii=(text:string)=>text.replace(/[A-Z]/g,c=>c.toLowerCase());
       const search=lowerAscii(query.search.trim());
-      const rows=entries.filter(e=>e.kind===query.kind && (!query.from || e.date>=query.from) && (!query.to || e.date<=query.to)).map(e=>({...e,customer_code:customers.find(c=>c.id===e.customer_id)?.code || ''})).filter(e=>[e.customer_name,e.customer_code,e.detail,e.date].some(s=>lowerAscii(s).includes(search))).sort((a,b)=>b.date.localeCompare(a.date));
+      const rows=entries.filter(e=>e.kind===query.kind && (!query.customer_id || e.customer_id===query.customer_id) && (!query.subtype || e.subtype===query.subtype) && (!query.from || e.date>=query.from) && (!query.to || e.date<=query.to)).map(e=>({...e,customer_code:customers.find(c=>c.id===e.customer_id)?.code || ''})).filter(e=>[e.customer_name,e.customer_code,e.detail,e.date].some(s=>lowerAscii(s).includes(search))).sort((a,b)=>b.date.localeCompare(a.date));
       return structuredClone({ rows:rows.slice(query.page*25,query.page*25+25), total:rows.length, page:query.page, page_size:25 });
     },
     async attendance() {
@@ -187,7 +189,7 @@ export function createDemoStore(seed = true): Store {
       const total = saleTotal(input.volume, input.unit_price, input.freight);
       const c = update(input.customer_id, input.payment_type === 'credit' ? total : 0n);
       if (input.payment_type === 'credit') credit += total;
-      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, affects_balance: input.payment_type === 'credit', kind: 'sale', date: input.date, customer_name: c.name, detail: `${input.material} · ${input.payment_type === 'credit' ? 'باقی' : 'نقده'}`, amount: formatScaled(total) });
+      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.payment_type, affects_balance: input.payment_type === 'credit', kind: 'sale', date: input.date, customer_name: c.name, detail: `${input.material} · ${input.payment_type === 'credit' ? 'باقی' : 'نقده'}`, amount: formatScaled(total) });
     },
     async addReceipt(input) {
       validateDate(input.date);
@@ -196,7 +198,7 @@ export function createDemoStore(seed = true): Store {
       const c = update(input.customer_id, input.source === 'deposit' ? 0n : -amount);
       receipts += amount;
       const labels = { debt: 'باقی داری', deposit: 'امانت', statement: 'بیانیه', advance: 'پیش پرداخت' };
-      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, affects_balance: input.source !== 'deposit', kind: 'receipt', date: input.date, customer_name: c.name, detail: labels[input.source], amount: formatScaled(amount) });
+      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.source, affects_balance: input.source !== 'deposit', kind: 'receipt', date: input.date, customer_name: c.name, detail: labels[input.source], amount: formatScaled(amount) });
     },
   };
 }
