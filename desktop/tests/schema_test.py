@@ -71,6 +71,20 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual(balances, {'c': 10000, 'c2': 25000})
         self.assertEqual(self.db.execute("SELECT customer_id,total_cents FROM sales WHERE id='s'").fetchone(), ('c2',30000))
 
+    def test_financial_report_actual_sql_uses_complete_inclusive_history(self):
+        for migration in ['0002_employees.sql','0003_expenses.sql','0004_salaries.sql']:
+            self.db.executescript((SCHEMA.parent / migration).read_text())
+        self.db.execute("INSERT INTO employees(id,code,name) VALUES('e','E','کارمند')")
+        self.db.executemany("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES(?,'c','2025-03-21','ریگ',1000,100,0,100,'credit')", [(str(i),) for i in range(105)])
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('cash','c','2025-03-22','ریگ',1250,100,0,125,'cash'),('outside','c','2025-03-23','ریگ',1000,100,0,100,'credit')")
+        self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r1','c','2025-03-21',200,'debt'),('r2','c','2025-03-22',300,'deposit')")
+        self.db.execute("INSERT INTO expenses(id,expense_date,description,amount_afn_cents,amount_usd_cents,payment_method) VALUES('x','2025-03-21','x',120,340,'credit')")
+        self.db.execute("INSERT INTO salaries(id,employee_id,period_calendar,period_year,period_month,pay_date,base_cents,bonus_cents,fine_cents,overtime_cents,total_cents,payment_type) VALUES('p','e','shamsi',1404,1,'2025-03-22',100,0,300,0,-200,'transfer')")
+        source = (SCHEMA.parent.parent / 'src/reports.rs').read_text()
+        query = re.search(r'const SUMMARY_SQL: &str = "(.*?)";',source,re.S).group(1)
+        self.assertEqual(self.db.execute(query,('2025-03-21','2025-03-22')).fetchone(),(106,125,10500,106250,2,200,300,1,120,340,1,-200))
+        self.assertEqual(self.db.execute(query,('2024-01-01','2024-01-01')).fetchone(),(0,0,0,0,0,0,0,0,0,0,0,0))
+
     def test_vacuum_backup_query_creates_consistent_separate_snapshot(self):
         source = (SCHEMA.parent.parent / 'src/service.rs').read_text()
         self.assertIn('sqlx::query("VACUUM INTO ?")', source)

@@ -380,3 +380,19 @@ test('monthly attendance report counts only recorded dates and respects calendar
   await page.getByLabel('ماه (شمسی)').fill('1404/13'); await expect(page.getByRole('alert')).toContainText('معتبر نیست');
   await page.getByLabel('تقویم نمایش').selectOption('miladi'); await page.getByLabel('ماه (میلادی)').fill('2025/03'); await expect(cells.nth(2)).toHaveText('2');
 });
+
+test('financial report uses the requested inclusive dates and keeps currencies and deposits separate',async({page})=>{
+  await page.goto('/');
+  await page.getByRole('button',{name:'فروشات',exact:true}).click(); await page.getByRole('button',{name:'فروش جدید',exact:true}).click(); let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ شمسی').fill('1404/01/01'); await dialog.getByLabel('نوع پرداخت').selectOption('credit'); await dialog.getByLabel('متراژ (متر مکعب)').fill('1.25'); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('100'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('button',{name:'رسیدات',exact:true}).click(); await page.getByRole('button',{name:'رسید جدید'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ شمسی').fill('1404/01/02'); await dialog.getByLabel('مبلغ رسید (افغانی)').fill('30'); await dialog.getByLabel('منبع رسید').selectOption('deposit'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('button',{name:'مصارف',exact:true}).click(); await page.getByRole('button',{name:'مصرف جدید'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ شمسی').fill('1404/01/01'); await dialog.getByLabel('شرح مصرف').fill('گزارش'); await dialog.getByLabel('مبلغ افغانی').fill('12.50'); await dialog.getByLabel('مبلغ دالری').fill('5.25'); await dialog.getByLabel('روش پرداخت').selectOption('credit'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('button',{name:'راپور مالی بازه‌ای',exact:true}).click();
+  await page.getByLabel('از تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۱'); await page.getByLabel('تا تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۲'); await page.getByRole('button',{name:'محاسبهٔ راپور'}).click();
+  for(const [label,value] of [['فروش باقی','125'],['متراژ فروش','1.250'],['رسید امانت','30'],['رسیدهای مؤثر بر بدهی','0'],['مصارف افغانی','12.50'],['مصارف دالری','5.25']]) await expect(page.getByRole('row').filter({hasText:label})).toContainText(value);
+  await expect(page.getByText('این ارقام موجودی دخل', {exact:false})).toBeVisible();
+  await page.getByLabel('تا تاریخ (شمسی)').fill('1403/12/29'); await expect(page.getByRole('row').filter({hasText:'فروش باقی'})).toHaveCount(0); await page.getByRole('button',{name:'محاسبهٔ راپور'}).click(); await expect(page.getByRole('alert')).toContainText('تاریخ آغاز');
+  await page.getByLabel('تقویم نمایش').selectOption('miladi'); await page.getByLabel('از تاریخ (میلادی)').fill('2025/03/21'); await page.getByLabel('تا تاریخ (میلادی)').fill('2025/03/21'); await page.getByRole('button',{name:'محاسبهٔ راپور'}).click(); await expect(page.getByRole('row').filter({hasText:'رسید امانت'})).toContainText('0');
+});

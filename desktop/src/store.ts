@@ -1,8 +1,9 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { normalizeDateDigits } from './calendar';
-import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store } from './domain';
+import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary } from './domain';
 
 const tauriStore: Store = {
+  rangeSummary: (from,to) => invoke<RangeSummary>('range_summary', {from,to}),
   snapshot: () => invoke<Snapshot>('snapshot'),
   transactions: query => invoke<TransactionPage>('list_transactions', { query }),
   transactionDetail: (kind,id) => invoke<TransactionDetail>('transaction_detail', { kind,id }),
@@ -63,6 +64,20 @@ export function createDemoStore(seed = true): Store {
     if (Number(m[1]) < 1 || !Number.isFinite(d.getTime()) || d.toISOString().slice(0, 10) !== date) throw new Error('تاریخ میلادی معتبر وارد کنید.');
   };
   return {
+    async rangeSummary(from,to) {
+      validateDate(from); validateDate(to); if (from>to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
+      const within=(date:string)=>date>=from && date<=to;
+      const sales=entries.filter(e=>e.kind==='sale' && within(e.date));
+      const receipts=entries.filter(e=>e.kind==='receipt' && within(e.date));
+      const ex=expenses.filter(e=>within(e.date)); const sal=salaries.filter(s=>within(s.pay_date));
+      const sum=(values:string[])=>formatScaled(values.reduce((n,v)=>n+storedCents(v),0n));
+      return {
+        sales_count:sales.length, sales_cash:sum(sales.filter(e=>e.subtype==='cash').map(e=>e.amount)), sales_credit:sum(sales.filter(e=>e.subtype==='credit').map(e=>e.amount)),
+        volume:formatScaled(sales.reduce((n,e)=>n+parseScaled(e.sale!.volume,3),0n),3),
+        receipts_count:receipts.length, receipts_effective:sum(receipts.filter(e=>e.subtype!=='deposit').map(e=>e.amount)), receipts_deposit:sum(receipts.filter(e=>e.subtype==='deposit').map(e=>e.amount)),
+        expenses_count:ex.length, expenses_afn:sum(ex.map(e=>e.amount_afn)), expenses_usd:sum(ex.map(e=>e.amount_usd)), salaries_count:sal.length, salaries_afn:sum(sal.map(s=>s.total)),
+      };
+    },
     async snapshot(): Promise<Snapshot> {
       return structuredClone({ customers, entries: entries.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100), credit_sales: formatScaled(credit), receipts: formatScaled(receipts), total_balance: formatScaled(customers.reduce((a,c) => a + storedCents(c.balance), 0n)) });
     },
@@ -241,6 +256,7 @@ export function createDemoStore(seed = true): Store {
 export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
+  rangeSummary: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   transactionDetail: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   transactions: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   snapshot: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

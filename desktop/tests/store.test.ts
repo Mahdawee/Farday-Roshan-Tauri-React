@@ -203,3 +203,21 @@ describe('editing financial transactions',()=>{
     expect((await s.snapshot()).credit_sales).toBe('0.00');
   });
 });
+
+describe('financial range summary',()=>{
+  it('counts the full history with inclusive boundaries and separate amounts',async()=>{
+    const s=createDemoStore(false);
+    await s.addCustomer({code:'C',name:'C',phone:'',opening:'0'}); const c=(await s.snapshot()).customers[0].id;
+    await s.saveEmployee(null,{code:'E',name:'E',father_name:'',job_title:'',hire_date:null,base_salary:'0',phone:'',status:'active'}); const e=(await s.employees())[0].id;
+    for(let i=0;i<105;i++) await s.addSale({customer_id:c,date:'2025-03-21',material:'ریگ',volume:'1',unit_price:'1',freight:'0',payment_type:'credit'});
+    await s.addSale({customer_id:c,date:'2025-03-22',material:'ریگ',volume:'1.25',unit_price:'1',freight:'0',payment_type:'cash'});
+    await s.addSale({customer_id:c,date:'2025-03-23',material:'ریگ',volume:'1',unit_price:'1',freight:'0',payment_type:'credit'});
+    await s.addReceipt({customer_id:c,date:'2025-03-21',amount:'2',source:'debt'}); await s.addReceipt({customer_id:c,date:'2025-03-22',amount:'3',source:'deposit'});
+    await s.saveExpense(null,{date:'2025-03-21',description:'x',expense_type:'',purchase_bill_no:'',shop_name:'',amount_afn:'1.20',amount_usd:'3.40',payer:'',payment_method:'credit',notes:''});
+    await s.saveSalary(null,{employee_id:e,period_calendar:'shamsi',period_year:1404,period_month:1,pay_date:'2025-03-22',base:'1',bonus:'0',fine:'3',overtime:'0',payer:'',payment_type:'transfer',notes:''});
+    const report=await s.rangeSummary('2025-03-21','2025-03-22');
+    expect(report).toEqual({sales_count:106,sales_credit:'105.00',sales_cash:'1.25',volume:'106.250',receipts_count:2,receipts_effective:'2.00',receipts_deposit:'3.00',expenses_count:1,expenses_afn:'1.20',expenses_usd:'3.40',salaries_count:1,salaries_afn:'-2.00'});
+    expect((await s.rangeSummary('2024-01-01','2024-01-01')).sales_count).toBe(0);
+    await expect(s.rangeSummary('2025-03-22','2025-03-21')).rejects.toThrow(); await expect(s.rangeSummary('2025-02-29','2025-03-21')).rejects.toThrow();
+  });
+});

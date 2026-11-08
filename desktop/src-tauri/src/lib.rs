@@ -4,6 +4,7 @@ mod expenses;
 mod salaries;
 mod attendance;
 mod transactions;
+mod reports;
 mod restore;
 use service::{CustomerInput, ReceiptInput, SaleInput, Snapshot, Ledger};
 use sqlx::SqlitePool;
@@ -90,6 +91,9 @@ async fn list_transactions(db: State<'_, Database>, query: transactions::Transac
 #[tauri::command]
 async fn transaction_detail(db: State<'_, Database>, kind: String, id: String) -> Result<transactions::TransactionDetail, String> { transactions::detail(&db.0, kind, id).await }
 
+#[tauri::command]
+async fn range_summary(db: State<'_, Database>, from: String, to: String) -> Result<reports::RangeSummary, String> { reports::range_summary(&db.0, from, to).await }
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -101,7 +105,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail, range_summary])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }
