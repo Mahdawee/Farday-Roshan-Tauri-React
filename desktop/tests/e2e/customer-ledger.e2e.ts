@@ -272,3 +272,28 @@ test('attendance summary counts only matching recorded days and exact overtime',
   await page.getByLabel('تا تاریخ کار (شمسی)').fill('۱۴۰۴/۰۱/۰۱');
   await expect(page.getByRole('alert')).toContainText('تاریخ آغاز'); await expect(page.locator('.expense-summary')).toHaveCount(0);
 });
+
+
+test('daily sheet creates selected employees without overwriting existing records', async ({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'کارمندان',exact:true}).click();
+  await page.getByRole('button',{name:'کارمند جدید'}).click(); let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('کد کارمند').fill('E2'); await dialog.getByLabel('نام و تخلص').fill('کارمند دوم');
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('button',{name:'حضور و غیاب',exact:true}).click();
+  await page.getByRole('button',{name:'ورق روزانه'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ ورق (شمسی)').fill('۱۴۰۴/۰۱/۰۱');
+  await dialog.getByLabel('وضعیت احمد احمدی (EMP-001)').selectOption('present');
+  await dialog.getByLabel('وضعیت کارمند دوم (E2)').selectOption('leave');
+  await dialog.getByRole('button',{name:'ذخیره ورق'}).click();
+  await expect(page.getByRole('row').filter({hasText:'احمد احمدی'})).toContainText('حاضر');
+  await expect(page.getByRole('row').filter({hasText:'کارمند دوم'})).toContainText('رخصت');
+  await page.getByRole('button',{name:'ورق روزانه'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ ورق (شمسی)').fill('۱۴۰۴/۰۱/۰۱');
+  await expect(dialog.getByText('کارمند فعال بدون رکورد برای این تاریخ وجود ندارد.')).toBeVisible();
+  await expect(dialog.getByRole('button',{name:'ذخیره ورق'})).toBeDisabled();
+  await dialog.getByLabel('تاریخ ورق (شمسی)').fill('۱۴۰۴/۰۱/۰۲');
+  await dialog.getByRole('button',{name:'همهٔ قابل ثبت حاضر'}).click();
+  await expect(dialog.getByLabel('وضعیت کارمند دوم (E2)')).toHaveValue('present');
+  await dialog.getByLabel('تاریخ ورق (شمسی)').fill('۱۴۰۴/۰۱/۰۳');
+  await expect(dialog.getByLabel('وضعیت کارمند دوم (E2)')).toHaveValue('');
+});

@@ -76,6 +76,9 @@ async fn list_attendance(db: State<'_, Database>) -> Result<Vec<attendance::Atte
 #[tauri::command]
 async fn save_attendance(db: State<'_, Database>, id: Option<String>, input: attendance::AttendanceInput) -> Result<(), String> { attendance::save(&db.0, id, input).await }
 
+#[tauri::command]
+async fn create_attendance_batch(db: State<'_, Database>, work_date: String, rows: Vec<attendance::BatchRow>) -> Result<(), String> { attendance::create_batch(&db.0, work_date, rows).await }
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -87,7 +90,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }

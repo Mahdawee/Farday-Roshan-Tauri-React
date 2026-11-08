@@ -125,3 +125,21 @@ describe('attendance records', () => {
     expect(await s.attendance()).toHaveLength(1);
   });
 });
+
+
+describe('daily attendance batch', () => {
+  it('creates only explicit selected rows and rejects a whole conflicting batch', async () => {
+    const s=createDemoStore(false);
+    const employee={code:'E1',name:'اول',father_name:'',job_title:'',hire_date:null,base_salary:'0',phone:'',status:'active' as const};
+    await s.saveEmployee(null,employee); await s.saveEmployee(null,{...employee,code:'E2',name:'دوم'}); await s.saveEmployee(null,{...employee,code:'E3',name:'غیرفعال',status:'inactive'});
+    const [one,two,inactive]=await s.employees();
+    await s.createAttendanceBatch('2025-03-21',[{employee_id:one.id,status:'present'}]);
+    await expect(s.createAttendanceBatch('2025-03-21',[{employee_id:two.id,status:'leave'},{employee_id:one.id,status:'absent'}])).rejects.toThrow();
+    expect(await s.attendance()).toHaveLength(1); expect((await s.attendance())[0].status).toBe('present');
+    await expect(s.createAttendanceBatch('2025-03-22',[{employee_id:two.id,status:'leave'},{employee_id:inactive.id,status:'present'}])).rejects.toThrow();
+    await expect(s.createAttendanceBatch('2025-03-22',[{employee_id:two.id,status:'leave'},{employee_id:two.id,status:'present'}])).rejects.toThrow();
+    expect(await s.attendance()).toHaveLength(1);
+    await s.createAttendanceBatch('2025-03-22',[{employee_id:one.id,status:'present'},{employee_id:two.id,status:'leave'}]);
+    expect(await s.attendance()).toHaveLength(3);
+  });
+});

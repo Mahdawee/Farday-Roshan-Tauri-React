@@ -5,6 +5,7 @@ import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, Entry, 
 const tauriStore: Store = {
   snapshot: () => invoke<Snapshot>('snapshot'),
   attendance: () => invoke<Attendance[]>('list_attendance'),
+  createAttendanceBatch: (workDate, rows) => invoke('create_attendance_batch', { workDate, rows }),
   saveAttendance: (id, input) => invoke('save_attendance', { id, input }),
   salaries: () => invoke<Salary[]>('list_salaries'),
   saveSalary: (id, input) => invoke('save_salary', { id, input }),
@@ -63,6 +64,20 @@ export function createDemoStore(seed = true): Store {
     },
     async attendance() {
       return structuredClone(attendance.map(a => { const e=staff.find(employee=>employee.id===a.employee_id); return e ? {...a,employee_name:e.name,employee_code:e.code} : a; }).sort((a,b)=>b.work_date.localeCompare(a.work_date)));
+    },
+    async createAttendanceBatch(workDate,rows) {
+      validateDate(workDate);
+      if (!rows.length || rows.length>500) throw new Error('ورق باید بین ۱ تا ۵۰۰ کارمند داشته باشد.');
+      const ids=new Set<string>();
+      for (const row of rows) {
+        if (!row.employee_id.trim() || ids.has(row.employee_id) || !['present','absent','leave','sick','holiday','friday'].includes(row.status)) throw new Error('کارمندان یا وضعیت‌های ورق معتبر نیستند.');
+        ids.add(row.employee_id);
+        const employee=staff.find(e=>e.id===row.employee_id);
+        if (!employee || employee.status!=='active') throw new Error('کارمند انتخاب‌شده وجود ندارد یا غیرفعال است؛ هیچ ردیفی ذخیره نشد.');
+        if (attendance.some(a=>a.employee_id===row.employee_id && a.work_date===workDate)) throw new Error('برای این کارمند در این تاریخ قبلاً حضور ثبت شده است؛ رکورد موجود را ویرایش کنید.');
+      }
+      const newRows=rows.map(row=>{const employee=staff.find(e=>e.id===row.employee_id)!; return {id:crypto.randomUUID(),employee_id:row.employee_id,employee_name:employee.name,employee_code:employee.code,work_date:workDate,status:row.status,check_in:null,check_out:null,overtime:'0.00',notes:''};});
+      attendance.unshift(...newRows);
     },
     async saveAttendance(id,input) {
       validateDate(input.work_date);
@@ -180,6 +195,7 @@ export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
   snapshot: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  createAttendanceBatch: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   attendance: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   saveAttendance: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   salaries: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

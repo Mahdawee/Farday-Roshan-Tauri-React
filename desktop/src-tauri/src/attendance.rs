@@ -59,6 +59,26 @@ pub(crate) async fn save(db: &SqlitePool, id: Option<String>, input: AttendanceI
     }
     Ok(())
 }
+#[derive(Deserialize)]
+pub(crate) struct BatchRow { employee_id: String, status: String }
+/// Create missing daily records atomically, never overwrite an existing record.
+pub(crate) async fn create_batch(db: &SqlitePool, work_date: String, rows: Vec<BatchRow>) -> Result<(), String> {
+    valid_date(&work_date)?;
+    if rows.is_empty() || rows.len()>500 { return Err("ورق باید بین ۱ تا ۵۰۰ کارمند داشته باشد.".into()); }
+    let mut ids=std::collections::HashSet::new();
+    for row in &rows {
+        if row.employee_id.trim().is_empty() || !ids.insert(&row.employee_id) || !valid_status(&row.status) { return Err("کارمندان یا وضعیت‌های ورق معتبر نیستند.".into()); }
+    }
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(error)?;
+    for row in rows {
+        // Batch is restricted to active employees at the moment of insertion.
+        let active:Option<i64>=sqlx::query_scalar("SELECT 1 FROM employees WHERE id=? AND status='active'").bind(&row.employee_id).fetch_optional(&mut *tx).await.map_err(error)?;
+        if active.is_none() { return Err("کارمند انتخاب‌شده وجود ندارد یا غیرفعال است؛ هیچ ردیفی ذخیره نشد.".into()); }
+        sqlx::query("INSERT INTO attendance(id,employee_id,work_date,status) VALUES(?,?,?,?)")
+            .bind(Uuid::new_v4().to_string()).bind(row.employee_id).bind(&work_date).bind(row.status).execute(&mut *tx).await.map_err(error)?;
+    }
+    tx.commit().await.map_err(error)?; Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*; use crate::service::open_database;
@@ -79,4 +99,21 @@ mod tests {
         db.close().await; let db=open_database(path.clone()).await.unwrap(); let row=list(&db).await.unwrap().remove(0); assert_eq!(row.status,"leave"); assert_eq!(row.check_in,None);
         db.close().await; std::fs::remove_file(path).unwrap();
     }
+    #[tokio::test]
+    async fn batch_is_atomic_and_never_overwrites_existing() {
+        let path=std::env::temp_dir().join(format!("attendance-batch-{}.sqlite3",Uuid::new_v4())); let db=open_database(path.clone()).await.unwrap();
+        sqlx::query("INSERT INTO employees(id,code,name,status) VALUES('e','E','اول','active'),('f','F','دوم','active'),('i','I','غیرفعال','inactive')").execute(&db).await.unwrap();
+        save(&db,None,input()).await.unwrap();
+        let row=|employee_id:&str, status:&str| BatchRow {employee_id:employee_id.into(),status:status.into()};
+        assert!(create_batch(&db,"2025-03-21".into(),vec![row("f","present"),row("e","absent")]).await.is_err());
+        assert_eq!(list(&db).await.unwrap().len(),1);
+        assert!(create_batch(&db,"2025-03-22".into(),vec![row("f","present"),row("i","present")]).await.is_err());
+        assert!(create_batch(&db,"2025-03-22".into(),vec![row("f","present"),row("f","absent")]).await.is_err());
+        assert!(create_batch(&db,"2025-02-29".into(),vec![row("e","present")]).await.is_err());
+        assert_eq!(list(&db).await.unwrap().len(),1);
+        create_batch(&db,"2025-03-22".into(),vec![row("e","present"),row("f","leave")]).await.unwrap();
+        assert_eq!(list(&db).await.unwrap().len(),3);
+        db.close().await; std::fs::remove_file(path).unwrap();
+    }
+
 }
