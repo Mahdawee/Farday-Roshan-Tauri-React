@@ -3,5 +3,5 @@
   "identifier": "main-capability",
   "description": "Main application window can open a native backup save dialog.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-save"]
+  "permissions": ["core:default", "dialog:allow-save", "dialog:allow-open"]
 }

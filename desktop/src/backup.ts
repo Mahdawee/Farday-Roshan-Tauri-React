@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { save } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import { inDesktop } from './store';
 
 /** Returns false when the user cancels; never simulates a backup in the browser. */
@@ -11,4 +11,19 @@ export async function createBackup(): Promise<boolean> {
   if (!path) return false;
   await invoke('create_backup', { path });
   return true;
+}
+
+export interface BackupInfo { customers: number; sales: number; receipts: number }
+export interface RestoreResult extends BackupInfo { safety_backup: string }
+
+export async function chooseBackup(): Promise<{ path: string; info: BackupInfo } | null> {
+  if (!inDesktop) throw new Error('بازگردانی فقط در نسخهٔ دسکتاپ قابل استفاده است.');
+  const path = await open({ title: 'انتخاب فایل پشتیبان', multiple: false, directory: false, filters: [{ name: 'SQLite', extensions: ['sqlite3'] }] });
+  if (!path) return null;
+  const info = await invoke<BackupInfo>('inspect_backup', { path });
+  return { path, info };
+}
+export async function restoreBackup(path: string): Promise<RestoreResult> {
+  if (!inDesktop) throw new Error('بازگردانی فقط در نسخهٔ دسکتاپ قابل استفاده است.');
+  return invoke<RestoreResult>('restore_backup', { path });
 }

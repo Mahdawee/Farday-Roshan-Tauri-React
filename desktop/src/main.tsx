@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { ArrowDownLeft, ArrowLeft, ArrowUpLeft, Archive, Box, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock3, FileBarChart, LayoutDashboard, Menu, Package, Plus, ReceiptText, Search, Settings, ShieldCheck, ShoppingCart, Users, Wallet, X } from 'lucide-react';
 import { CustomerInput, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, formatScaled } from './domain';
 import { inDesktop, store } from './store';
-import { createBackup } from './backup';
+import { BackupInfo, chooseBackup, createBackup, restoreBackup } from './backup';
 import './style.css';
 
 type Page = 'dashboard' | 'customers' | 'sales' | 'receipts' | 'backup';
@@ -44,7 +44,7 @@ function App() {
       <header className="topbar"><div className="top-title"><button className="mobile-menu icon-button" onClick={() => setMenuOpen(true)} aria-label="باز کردن منو"><Menu size={21}/></button><span>فضای کاری</span><span className="crumb">/</span><b>{pageTitles[page]}</b></div><div className="top-meta"><span className="top-date"><Clock3 size={16}/> {new Intl.DateTimeFormat('fa-AF-u-ca-persian', { dateStyle: 'long' }).format(new Date())}</span><div className="avatar">فر</div><div className="user-label"><b>فردای روشن</b><span>نسخهٔ آزمایشی</span></div><ChevronDown size={15}/></div></header>
       <main className="main">
         {!inDesktop && <div className="demo-banner"><ShieldCheck size={18}/><span><b>حالت نمایش:</b> داده‌ها نمونه و موقتی‌اند و با بستن یا تازه‌کردن صفحه از بین می‌روند. برای ذخیرهٔ واقعی باید برنامهٔ دسکتاپ اجرا شود.</span></div>}
-        {inDesktop && <div className="demo-banner"><ShieldCheck size={18}/><span><b>نسخهٔ اولیه:</b> هنوز ورود کاربران، بازگردانی پشتیبان و انتقال اطلاعات آماده نیستند؛ برای داده‌های واقعی شرکت استفاده نشود.</span></div>}
+        {inDesktop && <div className="demo-banner"><ShieldCheck size={18}/><span><b>نسخهٔ اولیه:</b> هنوز ورود کاربران و انتقال اطلاعات آماده نیستند؛ بازیابی نیازمند آزمایش بیشتر است؛ برای داده‌های واقعی شرکت استفاده نشود.</span></div>}
         {notice && <div className="notice"><Check size={17}/>{notice}</div>}
         {error && <div className="error" role="alert">{error}</div>}
         <div className="page-heading"><div><div className="eyebrow"><span/> مدیریت کسب‌وکار</div><h1>{page === 'dashboard' ? 'سلام، به فردای روشن خوش آمدید' : pageTitles[page]}</h1><p>{page === 'dashboard' ? 'نمایی روشن از فعالیت‌ها و حساب‌های شرکت در یک نگاه.' : page === 'customers' ? 'مشتریان و مانده حساب آن‌ها را در یک جا مدیریت کنید.' : page === 'sales' ? 'فروشات نقدی و قرضه را ثبت و دنبال کنید.' : page === 'receipts' ? 'رسیدهای مشتریان و پرداخت‌های دریافتی را ثبت کنید.' : 'یک نسخهٔ جداگانه از معلومات محلی تهیه کنید.'}</p></div><div className="heading-actions">{page !== 'backup' && <>{page === 'dashboard' && <button className="btn secondary" onClick={() => setModal('receipt')}><Plus size={17}/> ثبت رسید</button>}<button className="btn primary" onClick={() => setModal(page === 'customers' ? 'customer' : page === 'receipts' ? 'receipt' : 'sale')}><Plus size={18}/>{page === 'customers' ? 'مشتری جدید' : page === 'receipts' ? 'رسید جدید' : 'فروش جدید'}</button></>}</div></div>
@@ -53,7 +53,7 @@ function App() {
           <div className="content-grid"><section className="panel activity-panel"><div className="panel-head"><div><h2>آخرین فعالیت‌ها</h2><p>آخرین فروشات و رسیدهای ثبت‌شده</p></div><button className="text-button" onClick={() => navigate('sales')}>همه فروشات <ArrowLeft size={15}/></button></div><Entries entries={recent.slice(0,6)} loading={loading}/></section><section className="panel quick-panel"><div className="panel-head"><div><h2>دسترسی سریع</h2><p>کارهای روزانه را سریع‌تر انجام دهید</p></div></div><div className="quick-list"><Quick icon={<Users/>} title="مشتری جدید" text="افزودن به فهرست مشتریان" onClick={() => setModal('customer')}/><Quick icon={<ShoppingCart/>} title="ثبت فروش" text="ایجاد یک فروش جدید" onClick={() => setModal('sale')}/><Quick icon={<ReceiptText/>} title="ثبت رسید" text="ثبت مبلغ دریافتی از مشتری" onClick={() => setModal('receipt')}/></div><div className="quick-note"><Package size={19}/><div><b>یک شروع تازه</b><p>بخش‌های دیگر سیستم در مراحل بعدی اضافه می‌شوند.</p></div></div></section></div>
           <section className="panel customers-panel"><div className="panel-head"><div><h2>مشتریان اخیر</h2><p>نگاهی به حساب مشتریان شما</p></div><button className="text-button" onClick={() => navigate('customers')}>مشاهده مشتریان <ArrowLeft size={15}/></button></div><CustomerTable customers={snapshot.customers.slice(0,5)} loading={loading} openLedger={setLedgerId}/></section>
         </>}
-        {page === 'backup' && <BackupPanel/>}
+        {page === 'backup' && <BackupPanel onRestored={refresh}/>}
         {page !== 'dashboard' && page !== 'backup' && <section className="panel listing"><div className="panel-head list-header"><div><h2>{page === 'customers' ? 'فهرست مشتریان' : page === 'sales' ? 'فهرست فروشات' : 'فهرست رسیدات'}</h2><p>{page === 'customers' ? `${snapshot.customers.length} مشتری ثبت شده` : 'حداکثر ۱۰۰ فعالیت اخیر نمایش داده می‌شود'}</p></div><label className="search"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." aria-label="جستجو"/></label></div>{page === 'customers' ? <CustomerTable customers={customers} loading={loading} openLedger={setLedgerId}/> : <Entries entries={recent} loading={loading}/>}</section>}
         <footer><span>© سیستم مدیریت فردای روشن</span><span>ساخته‌شده برای کار بهتر، هر روز.</span></footer>
       </main>
@@ -67,23 +67,49 @@ function Quick({icon,title,text,onClick}: {icon:React.ReactNode;title:string;tex
 function CustomerTable({ customers, loading, openLedger }: { customers: Snapshot['customers']; loading: boolean; openLedger: (id: string) => void }) { return <div className="table-wrap"><table><thead><tr><th>مشتری</th><th>کد مشتری</th><th>شماره تماس</th><th>مانده حساب</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{customers.map((c,i) => <tr key={c.id}><td><div className="person"><span className={`person-avatar p${i%4}`}>{c.name.slice(0,1)}</span><b>{c.name}</b></div></td><td><span className="code" dir="ltr">{c.code}</span></td><td dir="ltr" className="ltr-cell">{c.phone || '—'}</td><td><b dir="ltr">{displayMoney(c.balance)}</b> <span className="unit">افغانی</span></td><td><span className={`badge ${c.balance === '0.00' ? 'good' : c.balance.startsWith('-') ? 'blue-badge' : 'warn'}`}>{c.balance === '0.00' ? 'تصفیه شده' : c.balance.startsWith('-') ? 'بستانکار' : 'دارای مانده'}</span></td><td><button className="text-button" onClick={() => openLedger(c.id)}>کارت حساب <ArrowLeft size={14}/></button></td></tr>)}</tbody></table>{!customers.length && <div className="empty">{loading ? 'در حال بارگذاری...' : 'هنوز مشتری‌ای برای نمایش وجود ندارد.'}</div>}</div>; }
 function Entries({ entries,loading }: { entries: Snapshot['entries']; loading:boolean }) { return <div className="table-wrap"><table><thead><tr><th>نوع فعالیت</th><th>مشتری</th><th>شرح</th><th>تاریخ میلادی</th><th>مبلغ</th></tr></thead><tbody>{entries.map(e => <tr key={e.id}><td><div className="activity-type"><span className={`activity-icon ${e.kind}`} >{e.kind === 'sale' ? <ArrowUpLeft size={17}/> : <ArrowDownLeft size={17}/>}</span><b>{e.kind === 'sale' ? 'فروش' : 'رسید'}</b></div></td><td>{e.customer_name}</td><td className="muted">{e.detail}</td><td><span dir="ltr" className="code">{e.date}</span></td><td><b dir="ltr">{displayMoney(e.amount)}</b> <span className="unit">افغانی</span></td></tr>)}</tbody></table>{!entries.length && <div className="empty">{loading ? 'در حال بارگذاری...' : 'هنوز فعالیتی برای نمایش وجود ندارد.'}</div>}</div>; }
 
-function BackupPanel() {
+function BackupPanel({ onRestored }: { onRestored: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [selection, setSelection] = useState<{path: string; info: BackupInfo} | null>(null);
+  const [confirmation, setConfirmation] = useState('');
   const run = async () => {
     setBusy(true); setMessage(''); setError('');
     try { if (await createBackup()) setMessage('فایل پشتیبان ساخته شد و بررسی صحت و ارتباطات آن موفق بود.'); }
     catch (e) { setError(String(e)); }
     finally { setBusy(false); }
   };
+  const choose = async () => {
+    setBusy(true); setMessage(''); setError(''); setConfirmation('');
+    try { const selected = await chooseBackup(); if (selected) setSelection(selected); }
+    catch (e) { setError(String(e)); }
+    finally { setBusy(false); }
+  };
+  const restore = async () => {
+    if (!selection || confirmation !== 'بازگردانی') return;
+    setBusy(true); setMessage(''); setError('');
+    try {
+      const result = await restoreBackup(selection.path);
+      setSelection(null); setConfirmation('');
+      setMessage(`بازگردانی انجام شد. نسخهٔ ایمنی وضعیت قبلی: ${result.safety_backup}`);
+      try { await onRestored(); } catch { setMessage(`بازگردانی انجام شد، اما تازه‌سازی صفحه ناموفق بود؛ برنامه را دوباره باز کنید. نسخهٔ ایمنی: ${result.safety_backup}`); }
+    } catch (e) { setError(String(e)); }
+    finally { setBusy(false); }
+  };
   return <section className="panel backup-panel">
-    <div className="backup-heading"><div className="backup-icon"><Archive size={25}/></div><div><h2>ساخت فایل پشتیبان</h2><p>یک نسخهٔ مستقل از دیتابیس محلی این برنامه در محل انتخابی شما ساخته می‌شود.</p></div></div>
-    <div className="backup-instructions"><b>پیش از شروع</b><ul><li>فایل نام جدید داشته باشد؛ فایل موجود بازنویسی نمی‌شود.</li><li>نسخه شامل معلومات حساس است و رمزگذاری نشده؛ آن را در محل امن نگه دارید.</li><li>این پشتیبان فقط مربوط به نسخهٔ جدید است، نه دیتابیس برنامهٔ PHP قدیمی.</li><li>بازگردانی هنوز پیاده‌سازی نشده است؛ تا آزمایش کامل به این قابلیت برای معلومات واقعی تکیه نکنید.</li></ul></div>
-    {!inDesktop && <div className="form-hint">در پیش‌نمایش مرورگر هیچ دیتابیس دائمی وجود ندارد و پشتیبان ساخته نمی‌شود.</div>}
-    {message && <div className="notice" role="status"><Check size={17}/>{message}</div>}
-    {error && <div className="error" role="alert">{error}</div>}
-    <button className="btn primary backup-action" disabled={!inDesktop || busy} onClick={run}><Archive size={17}/>{busy ? 'در حال ساخت و بررسی...' : 'انتخاب محل و ساخت پشتیبان'}</button>
+    <div className="backup-heading"><div className="backup-icon"><Archive size={25}/></div><div><h2>پشتیبان‌گیری و بازگردانی</h2><p>تهیه و بازگردانی فایل SQLite مربوط به نسخهٔ جدید دسکتاپ.</p></div></div>
+    <div className="backup-instructions"><b>نکات مهم</b><ul><li>فایل پشتیبان جدید نباید از قبل وجود داشته باشد.</li><li>فایل‌ها رمزگذاری نشده‌اند؛ آن‌ها را در محل امن نگه دارید.</li><li>این بخش با دیتابیس یا فایل SQL برنامهٔ PHP قدیمی سازگار نیست.</li><li>برنامه هنوز آزمایشی است؛ برای اطلاعات واقعی به آن تکیه نکنید.</li></ul></div>
+    {!inDesktop && <div className="form-hint">در پیش‌نمایش مرورگر هیچ دیتابیس دائمی وجود ندارد و پشتیبان ساخته یا بازگردانی نمی‌شود.</div>}
+    {message && <div className="notice backup-result" role="status"><Check size={17}/>{message}</div>}
+    {error && !selection && <div className="error" role="alert">{error}</div>}
+    <div className="backup-buttons"><button className="btn primary backup-action" disabled={!inDesktop || busy} onClick={run}><Archive size={17}/>{busy ? 'در حال بررسی...' : 'انتخاب محل و ساخت پشتیبان'}</button><button className="btn secondary backup-action" disabled={!inDesktop || busy} onClick={choose}>انتخاب فایل برای بازگردانی</button></div>
+    {selection && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="restore-title">
+      <div className="modal-head"><div><span className="eyebrow"><span/> عملیات حساس</span><h2 id="restore-title">تأیید بازگردانی</h2><p>پیش از ادامه معلومات فایل را بررسی کنید.</p></div><button className="icon-button" disabled={busy} aria-label="بستن" onClick={() => setSelection(null)}><X size={20}/></button></div>
+      <div className="backup-instructions restore-warning"><b>تمام اطلاعات فعلی نسخهٔ جدید جایگزین می‌شود.</b><p>یک نسخهٔ ایمنی از وضعیت فعلی در پوشهٔ دادهٔ برنامه ساخته می‌شود. فایل در هنگام بازگردانی دوباره بررسی می‌شود.</p><p className="backup-result" dir="auto">{selection.path}</p><p>مشتریان: {selection.info.customers} · فروشات: {selection.info.sales} · رسیدات: {selection.info.receipts}</p></div>
+      <label className="field restore-confirm"><span>برای تأیید، کلمهٔ «بازگردانی» را بنویسید</span><input value={confirmation} disabled={busy} onChange={e => setConfirmation(e.target.value)} autoComplete="off"/></label>
+      {error && <div className="error" role="alert">{error}</div>}
+      <div className="modal-actions"><button className="btn secondary" disabled={busy} onClick={() => setSelection(null)}>انصراف</button><button className="btn danger" disabled={busy || confirmation !== 'بازگردانی'} onClick={restore}>{busy ? 'در حال بازگردانی...' : 'تأیید و بازگردانی'}</button></div>
+    </div></div>}
   </section>;
 }
 

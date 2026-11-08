@@ -45,7 +45,7 @@ fn money(value: i64) -> String {
     let value = value as i128;
     format!("{}{}.{:02}", if value < 0 { "-" } else { "" }, value.abs() / 100, value.abs() % 100)
 }
-fn valid_date(date: &str) -> Result<(), String> {
+pub(crate) fn valid_date(date: &str) -> Result<(), String> {
     let parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|_| "تاریخ میلادی معتبر وارد کنید.")?;
     if parsed.year() < 1 || parsed.to_string() != date { return Err("تاریخ میلادی معتبر وارد کنید.".into()); }
     Ok(())

@@ -1,4 +1,5 @@
 mod service;
+mod restore;
 use service::{CustomerInput, ReceiptInput, SaleInput, Snapshot, Ledger};
 use sqlx::SqlitePool;
 use tauri::{Manager, State};
@@ -32,6 +33,17 @@ async fn create_backup(db: State<'_, Database>, path: String) -> Result<(), Stri
     service::create_backup(&db.0, std::path::PathBuf::from(path)).await
 }
 
+#[tauri::command]
+async fn inspect_backup(db: State<'_, Database>, path: String) -> Result<restore::BackupInfo, String> {
+    restore::inspect(&db.0, std::path::PathBuf::from(path)).await
+}
+
+#[tauri::command]
+async fn restore_backup(app: tauri::AppHandle, db: State<'_, Database>, path: String) -> Result<restore::RestoreResult, String> {
+    let dir = app.path().app_data_dir().map_err(|_| "مسیر دادهٔ برنامه یافت نشد.")?.join("restore-safety");
+    restore::restore(&db.0, std::path::PathBuf::from(path), dir).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -43,7 +55,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, add_sale, add_receipt, customer_ledger, create_backup])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }

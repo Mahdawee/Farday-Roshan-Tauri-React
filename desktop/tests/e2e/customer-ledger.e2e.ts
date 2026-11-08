@@ -51,5 +51,5 @@ test('browser preview does not pretend to create a real backup', async ({ page }
   await page.getByRole('button', { name: 'پشتیبان‌گیری', exact: true }).click();
   await expect(page.getByText('در پیش‌نمایش مرورگر هیچ دیتابیس دائمی وجود ندارد')).toBeVisible();
   await expect(page.getByRole('button', { name: 'انتخاب محل و ساخت پشتیبان' })).toBeDisabled();
-  await expect(page.getByText('بازگردانی هنوز پیاده‌سازی نشده است')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'انتخاب فایل برای بازگردانی' })).toBeDisabled();
 });
