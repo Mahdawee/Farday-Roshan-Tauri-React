@@ -179,3 +179,27 @@ describe('transaction details',()=>{
     expect(await s.transactionDetail('sale',sale.id)).toMatchObject({customer_code:'C2',customer_name:'نام جدید'});
   });
 });
+
+describe('editing financial transactions',()=>{
+  it('recomputes both customer ledgers and rejects stale changes',async()=>{
+    const s=createDemoStore(false);
+    await s.addCustomer({code:'C1',name:'اول',phone:'',opening:'100'}); await s.addCustomer({code:'C2',name:'دوم',phone:'',opening:'0'});
+    const [a,b]=(await s.snapshot()).customers;
+    const original={customer_id:a.id,date:'2026-01-01',material:'ریگ',volume:'1',unit_price:'200',freight:'0',payment_type:'credit' as const};
+    await s.addSale(original); const sale=(await s.snapshot()).entries[0];
+    await s.updateSale(sale.id,{...original,customer_id:b.id,unit_price:'300'},original);
+    await expect(s.updateSale(sale.id,original,original)).rejects.toThrow('تغییر کرده');
+    expect((await s.ledger(a.id)).balance).toBe('100.00'); expect((await s.ledger(b.id)).balance).toBe('300.00');
+    const receipt={customer_id:b.id,date:'2026-01-02',amount:'50',source:'deposit' as const};
+    await s.addReceipt(receipt); const rec=(await s.snapshot()).entries.find(e=>e.kind==='receipt')!;
+    await s.updateReceipt(rec.id,{...receipt,source:'debt'},receipt);
+    await expect(s.updateReceipt(rec.id,receipt,receipt)).rejects.toThrow('تغییر کرده');
+    expect((await s.ledger(b.id)).balance).toBe('250.00');
+    const old={...original,customer_id:b.id,unit_price:'300'};
+    await expect(s.updateSale(sale.id,{...old,customer_id:'missing'},old)).rejects.toThrow();
+    expect((await s.ledger(b.id)).balance).toBe('250.00');
+    await s.updateSale(sale.id,{...old,payment_type:'cash'},old);
+    expect((await s.ledger(b.id)).balance).toBe('-50.00');
+    expect((await s.snapshot()).credit_sales).toBe('0.00');
+  });
+});

@@ -92,27 +92,48 @@ pub(crate) async fn update_customer(db: &SqlitePool, id: String, input: Customer
     Ok(())
 }
 
-pub(crate) async fn add_sale(db: &SqlitePool, input: SaleInput) -> Result<(), String> {
+fn validate_sale(input: &SaleInput) -> Result<(i64,i64,i64,i64), String> {
     valid_date(&input.date)?;
     let material = input.material.trim();
     if material.is_empty() || material.len() > 200 { return Err("نوع مواد معتبر وارد کنید.".into()); }
     if !matches!(input.payment_type.as_str(), "cash" | "credit") { return Err("نوع پرداخت معتبر نیست.".into()); }
-    let (volume, price, freight, total) = calculate_sale(&input.volume, &input.unit_price, &input.freight)?;
-    sqlx::query("INSERT INTO sales (id, customer_id, sale_date, material, volume_milli, unit_price_cents, freight_cents, total_cents, payment_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(Uuid::new_v4().to_string()).bind(input.customer_id).bind(input.date).bind(material).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type)
-        .execute(db).await.map_err(db_error)?;
-    Ok(())
+    calculate_sale(&input.volume, &input.unit_price, &input.freight)
 }
-
-pub(crate) async fn add_receipt(db: &SqlitePool, input: ReceiptInput) -> Result<(), String> {
+fn validate_receipt(input: &ReceiptInput) -> Result<i64, String> {
     valid_date(&input.date)?;
     let amount = scaled(&input.amount, 2)?;
     if amount == 0 { return Err("مبلغ رسید باید بیشتر از صفر باشد.".into()); }
     if !matches!(input.source.as_str(), "debt" | "deposit" | "statement" | "advance") { return Err("منبع رسید معتبر نیست.".into()); }
+    Ok(amount)
+}
+pub(crate) async fn add_sale(db: &SqlitePool, input: SaleInput) -> Result<(), String> {
+    let (volume, price, freight, total) = validate_sale(&input)?;
+    sqlx::query("INSERT INTO sales (id, customer_id, sale_date, material, volume_milli, unit_price_cents, freight_cents, total_cents, payment_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(Uuid::new_v4().to_string()).bind(input.customer_id).bind(input.date).bind(input.material.trim()).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type)
+        .execute(db).await.map_err(db_error)?;
+    Ok(())
+}
+pub(crate) async fn add_receipt(db: &SqlitePool, input: ReceiptInput) -> Result<(), String> {
+    let amount=validate_receipt(&input)?;
     sqlx::query("INSERT INTO receipts (id, customer_id, receipt_date, amount_cents, source) VALUES (?, ?, ?, ?, ?)")
         .bind(Uuid::new_v4().to_string()).bind(input.customer_id).bind(input.date).bind(amount).bind(input.source)
         .execute(db).await.map_err(db_error)?;
     Ok(())
+}
+/// Compare every stored business field in one UPDATE. An old form cannot overwrite a newer edit.
+pub(crate) async fn update_sale(db: &SqlitePool, id: String, input: SaleInput, expected: SaleInput) -> Result<(), String> {
+    let (volume,price,freight,total)=validate_sale(&input)?;
+    let (old_volume,old_price,old_freight,old_total)=validate_sale(&expected)?;
+    let n=sqlx::query("UPDATE sales SET customer_id=?,sale_date=?,material=?,volume_milli=?,unit_price_cents=?,freight_cents=?,total_cents=?,payment_type=? WHERE id=? AND customer_id=? AND sale_date=? AND material=? AND volume_milli=? AND unit_price_cents=? AND freight_cents=? AND total_cents=? AND payment_type=?")
+        .bind(input.customer_id).bind(input.date).bind(input.material.trim()).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type).bind(id)
+        .bind(expected.customer_id).bind(expected.date).bind(expected.material.trim()).bind(old_volume).bind(old_price).bind(old_freight).bind(old_total).bind(expected.payment_type).execute(db).await.map_err(db_error)?.rows_affected();
+    if n==0 { return Err("فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); } Ok(())
+}
+pub(crate) async fn update_receipt(db: &SqlitePool, id: String, input: ReceiptInput, expected: ReceiptInput) -> Result<(), String> {
+    let amount=validate_receipt(&input)?; let old_amount=validate_receipt(&expected)?;
+    let n=sqlx::query("UPDATE receipts SET customer_id=?,receipt_date=?,amount_cents=?,source=? WHERE id=? AND customer_id=? AND receipt_date=? AND amount_cents=? AND source=?")
+        .bind(input.customer_id).bind(input.date).bind(amount).bind(input.source).bind(id).bind(expected.customer_id).bind(expected.date).bind(old_amount).bind(expected.source).execute(db).await.map_err(db_error)?.rows_affected();
+    if n==0 { return Err("رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); } Ok(())
 }
 
 pub(crate) async fn snapshot(db: &SqlitePool) -> Result<Snapshot, String> {
@@ -305,6 +326,26 @@ mod tests {
         let ledger = customer_ledger(&db, customer.id).await.unwrap();
         assert_eq!(ledger.customer_name, "ویرایش"); assert_eq!(ledger.balance, "700.00");
         assert!(update_customer(&db, "missing".into(), CustomerInput { code: "X".into(), name: "نام".into(), phone: "".into(), opening: "0".into() }).await.is_err());
+        db.close().await; std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn edits_recalculate_balances_and_reject_stale_forms() {
+        let path=std::env::temp_dir().join(format!("transaction-edit-{}.sqlite3",Uuid::new_v4())); let db=open_database(path.clone()).await.unwrap();
+        sqlx::query("INSERT INTO customers(id,code,name,opening_cents) VALUES('c1','C1','اول',10000),('c2','C2','دوم',0)").execute(&db).await.unwrap();
+        let sale=|| SaleInput {customer_id:"c1".into(),date:"2026-01-01".into(),material:"ریگ".into(),volume:"1.000".into(),unit_price:"200".into(),freight:"0".into(),payment_type:"credit".into()};
+        sqlx::query("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c1','2026-01-01','ریگ',1000,20000,0,20000,'credit')").execute(&db).await.unwrap();
+        let mut updated=sale(); updated.customer_id="c2".into(); updated.unit_price="300".into();
+        update_sale(&db,"s".into(),updated,sale()).await.unwrap();
+        assert!(update_sale(&db,"s".into(),sale(),sale()).await.is_err());
+        assert_eq!(customer_ledger(&db,"c1".into()).await.unwrap().balance,"100.00"); assert_eq!(customer_ledger(&db,"c2".into()).await.unwrap().balance,"300.00");
+        let receipt=|| ReceiptInput {customer_id:"c2".into(),date:"2026-01-02".into(),amount:"50".into(),source:"deposit".into()};
+        sqlx::query("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c2','2026-01-02',5000,'deposit')").execute(&db).await.unwrap();
+        let mut changed=receipt(); changed.source="debt".into(); update_receipt(&db,"r".into(),changed,receipt()).await.unwrap();
+        assert!(update_receipt(&db,"r".into(),receipt(),receipt()).await.is_err()); assert_eq!(customer_ledger(&db,"c2".into()).await.unwrap().balance,"250.00");
+        let mut expected=sale(); expected.customer_id="c2".into(); expected.unit_price="300".into();
+        let mut bad=sale(); bad.customer_id="missing".into(); assert!(update_sale(&db,"s".into(),bad,expected).await.is_err());
+        assert_eq!(customer_ledger(&db,"c2".into()).await.unwrap().balance,"250.00");
         db.close().await; std::fs::remove_file(path).unwrap();
     }
 

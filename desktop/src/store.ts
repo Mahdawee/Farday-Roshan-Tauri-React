@@ -19,7 +19,9 @@ const tauriStore: Store = {
   addCustomer: input => invoke('add_customer', { input }),
   updateCustomer: (id, input) => invoke('update_customer', { id, input }),
   addSale: input => invoke('add_sale', { input }),
+  updateSale: (id,input,expected) => invoke('update_sale', { id,input,expected }),
   addReceipt: input => invoke('add_receipt', { input }),
+  updateReceipt: (id,input,expected) => invoke('update_receipt', { id,input,expected }),
 };
 
 // Explicitly temporary browser preview. It never touches the real database.
@@ -62,7 +64,7 @@ export function createDemoStore(seed = true): Store {
   };
   return {
     async snapshot(): Promise<Snapshot> {
-      return structuredClone({ customers, entries, credit_sales: formatScaled(credit), receipts: formatScaled(receipts), total_balance: formatScaled(customers.reduce((a,c) => a + storedCents(c.balance), 0n)) });
+      return structuredClone({ customers, entries: entries.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100), credit_sales: formatScaled(credit), receipts: formatScaled(receipts), total_balance: formatScaled(customers.reduce((a,c) => a + storedCents(c.balance), 0n)) });
     },
     async transactions(query) {
       if (!['sale','receipt'].includes(query.kind) || !Number.isInteger(query.page) || query.page<0 || query.page>1000000 || new TextEncoder().encode(query.search).length>320) throw new Error('صفحه یا متن جستجو معتبر نیست.');
@@ -78,7 +80,7 @@ export function createDemoStore(seed = true): Store {
     async transactionDetail(kind,id) {
       const entry=entries.find(e=>e.kind===kind && e.id===id); if (!entry) throw new Error('عملیات انتخاب‌شده وجود ندارد.');
       const customer=customers.find(c=>c.id===entry.customer_id); if (!customer) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
-      const common={id:entry.id,date:entry.date,customer_name:customer.name,customer_code:customer.code};
+      const common={id:entry.id,customer_id:customer.id,date:entry.date,customer_name:customer.name,customer_code:customer.code};
       if (kind==='sale' && entry.sale) return structuredClone({kind:'sale',...common,...entry.sale,total:entry.amount,payment_type:entry.subtype as 'cash' | 'credit'});
       if (kind==='receipt') return structuredClone({kind:'receipt',...common,amount:entry.amount,source:entry.subtype as ReceiptInput['source']});
       throw new Error('نوع عملیات معتبر نیست.');
@@ -200,6 +202,18 @@ export function createDemoStore(seed = true): Store {
       if (input.payment_type === 'credit') credit += total;
       entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.payment_type, sale: {material:input.material.trim(),volume:formatScaled(parseScaled(input.volume,3),3),unit_price:formatScaled(parseScaled(input.unit_price,2)),freight:formatScaled(parseScaled(input.freight,2))}, affects_balance: input.payment_type === 'credit', kind: 'sale', date: input.date, customer_name: c.name, detail: `${input.material} · ${input.payment_type === 'credit' ? 'باقی' : 'نقده'}`, amount: formatScaled(total) });
     },
+    async updateSale(id, input, expected) {
+      const validate=(s: SaleInput) => { validateDate(s.date); if (!s.material.trim() || new TextEncoder().encode(s.material.trim()).length>200 || !['cash','credit'].includes(s.payment_type)) throw new Error('معلومات فروش معتبر نیست.'); return saleTotal(s.volume,s.unit_price,s.freight); };
+      const total=validate(input), oldTotal=validate(expected);
+      const entry=entries.find(e=>e.id===id && e.kind==='sale');
+      const original=entry?.sale;
+      if (!entry || !original || entry.customer_id!==expected.customer_id || entry.date!==expected.date || entry.subtype!==expected.payment_type || original.material!==expected.material.trim() || parseScaled(original.volume,3)!==parseScaled(expected.volume,3) || parseScaled(original.unit_price,2)!==parseScaled(expected.unit_price,2) || parseScaled(original.freight,2)!==parseScaled(expected.freight,2) || storedCents(entry.amount)!==oldTotal) throw new Error('فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.');
+      if (!customers.some(c=>c.id===input.customer_id)) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
+      if (entry.subtype==='credit') { update(entry.customer_id,-oldTotal); credit-=oldTotal; }
+      if (input.payment_type==='credit') { update(input.customer_id,total); credit+=total; }
+      const c=customers.find(c=>c.id===input.customer_id)!;
+      Object.assign(entry,{customer_id:c.id,customer_name:c.name,date:input.date,subtype:input.payment_type,affects_balance:input.payment_type==='credit',detail:`${input.material.trim()} · ${input.payment_type==='credit' ? 'باقی' : 'نقده'}`,amount:formatScaled(total),sale:{material:input.material.trim(),volume:formatScaled(parseScaled(input.volume,3),3),unit_price:formatScaled(parseScaled(input.unit_price,2)),freight:formatScaled(parseScaled(input.freight,2))}});
+    },
     async addReceipt(input) {
       validateDate(input.date);
       const amount = parseScaled(input.amount, 2);
@@ -208,6 +222,18 @@ export function createDemoStore(seed = true): Store {
       receipts += amount;
       const labels = { debt: 'باقی داری', deposit: 'امانت', statement: 'بیانیه', advance: 'پیش پرداخت' };
       entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.source, affects_balance: input.source !== 'deposit', kind: 'receipt', date: input.date, customer_name: c.name, detail: labels[input.source], amount: formatScaled(amount) });
+    },
+    async updateReceipt(id, input, expected) {
+      const validate=(r: ReceiptInput) => { validateDate(r.date); const amount=parseScaled(r.amount,2); if (!amount || !['debt','deposit','statement','advance'].includes(r.source)) throw new Error('معلومات رسید معتبر نیست.'); return amount; };
+      const amount=validate(input), oldAmount=validate(expected);
+      const entry=entries.find(e=>e.id===id && e.kind==='receipt');
+      if (!entry || entry.customer_id!==expected.customer_id || entry.date!==expected.date || entry.subtype!==expected.source || storedCents(entry.amount)!==oldAmount) throw new Error('رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.');
+      if (!customers.some(c=>c.id===input.customer_id)) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
+      if (entry.subtype!=='deposit') update(entry.customer_id,oldAmount);
+      if (input.source!=='deposit') update(input.customer_id,-amount);
+      receipts+=amount-oldAmount;
+      const c=customers.find(c=>c.id===input.customer_id)!; const labels={debt:'باقی داری',deposit:'امانت',statement:'بیانیه',advance:'پیش پرداخت'};
+      Object.assign(entry,{customer_id:c.id,customer_name:c.name,date:input.date,subtype:input.source,affects_balance:input.source!=='deposit',detail:labels[input.source],amount:formatScaled(amount)});
     },
   };
 }
@@ -230,6 +256,8 @@ export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? creat
   ledger: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addCustomer: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   updateCustomer: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  updateSale: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addSale: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  updateReceipt: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addReceipt: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
 };

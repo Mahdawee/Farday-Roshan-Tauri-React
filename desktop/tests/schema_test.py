@@ -49,6 +49,28 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual(customers[0][-1], 30000)
         self.assertEqual([event[0] for event in events], ['r', 's'])
 
+    def test_transaction_edit_sql_cas_and_foreign_key(self):
+        self.db.execute("INSERT INTO customers(id,code,name) VALUES('c2','C2','دوم')")
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2026-01-01','ریگ',1000,20000,0,20000,'credit')")
+        self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c2','2026-01-02',5000,'deposit')")
+        source = (SCHEMA.parent.parent / 'src/service.rs').read_text()
+        sale = re.search(r'sqlx::query\("(UPDATE sales SET .*?)"\)', source).group(1)
+        receipt = re.search(r'sqlx::query\("(UPDATE receipts SET .*?)"\)', source).group(1)
+        old_sale = ('s','c','2026-01-01','ریگ',1000,20000,0,20000,'credit')
+        new_sale = ('c2','2026-01-01','ریگ',1000,30000,0,30000,'credit')
+        self.assertEqual(self.db.execute(sale, new_sale + old_sale).rowcount, 1)
+        self.assertEqual(self.db.execute(sale, new_sale + old_sale).rowcount, 0)
+        old_receipt = ('r','c2','2026-01-02',5000,'deposit')
+        new_receipt = ('c2','2026-01-02',5000,'debt')
+        self.assertEqual(self.db.execute(receipt, new_receipt + old_receipt).rowcount, 1)
+        self.assertEqual(self.db.execute(receipt, new_receipt + old_receipt).rowcount, 0)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(sale, ('missing',) + new_sale[1:] + ('s',) + new_sale)
+        rows = re.findall(r'let rows = sqlx::query\("(.*?)"\)', source, re.S)
+        balances = {row[0]: row[-1] for row in self.db.execute(rows[0]).fetchall()}
+        self.assertEqual(balances, {'c': 10000, 'c2': 25000})
+        self.assertEqual(self.db.execute("SELECT customer_id,total_cents FROM sales WHERE id='s'").fetchone(), ('c2',30000))
+
     def test_vacuum_backup_query_creates_consistent_separate_snapshot(self):
         source = (SCHEMA.parent.parent / 'src/service.rs').read_text()
         self.assertIn('sqlx::query("VACUUM INTO ?")', source)

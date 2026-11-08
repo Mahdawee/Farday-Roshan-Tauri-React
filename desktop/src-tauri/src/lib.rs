@@ -28,6 +28,10 @@ async fn add_receipt(db: State<'_, Database>, input: ReceiptInput) -> Result<(),
     service::add_receipt(&db.0, input).await
 }
 #[tauri::command]
+async fn update_sale(db: State<'_, Database>, id: String, input: SaleInput, expected: SaleInput) -> Result<(), String> { service::update_sale(&db.0,id,input,expected).await }
+#[tauri::command]
+async fn update_receipt(db: State<'_, Database>, id: String, input: ReceiptInput, expected: ReceiptInput) -> Result<(), String> { service::update_receipt(&db.0,id,input,expected).await }
+#[tauri::command]
 async fn snapshot(db: State<'_, Database>) -> Result<Snapshot, String> {
     service::snapshot(&db.0).await
 }
@@ -97,7 +101,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }

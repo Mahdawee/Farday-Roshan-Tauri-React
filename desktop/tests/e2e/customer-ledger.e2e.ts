@@ -345,3 +345,24 @@ test('read-only sale and receipt details show the recorded components',async({pa
   row=page.getByRole('row').filter({hasText:'1.25'}); await row.getByRole('button',{name:'جزئیات'}).click(); dialog=page.getByRole('dialog');
   await expect(dialog).toContainText('امانت'); await expect(dialog).toContainText('تأثیر ندارد'); await expect(dialog).toContainText('1.25');
 });
+
+test('editing sale and receipt updates customer ledgers', async ({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'مشتریان',exact:true}).click();
+  for (const [code,name,opening] of [['EDIT-A','اول ویرایش','100'],['EDIT-B','دوم ویرایش','0']]) {
+    await page.getByRole('button',{name:'مشتری جدید'}).click(); const dialog=page.getByRole('dialog');
+    await dialog.getByLabel('کد مشتری').fill(code); await dialog.getByLabel('نام مشتری / شرکت').fill(name); await dialog.getByLabel('بدهی اولیه (افغانی)').fill(opening); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  }
+  await page.getByRole('button',{name:'فروشات',exact:true}).click(); await page.getByRole('button',{name:'فروش جدید',exact:true}).click(); let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('مشتری').selectOption({label:'اول ویرایش (EDIT-A)'}); await dialog.getByLabel('نوع پرداخت').selectOption('credit');
+  await dialog.getByLabel('متراژ (متر مکعب)').fill('1'); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('200'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  let row=page.getByRole('row').filter({hasText:'اول ویرایش'}); await row.getByRole('button',{name:'جزئیات'}).click(); dialog=page.getByRole('dialog'); await dialog.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
+  await expect(dialog).toContainText('سابقهٔ تغییرات'); await dialog.getByLabel('مشتری').selectOption({label:'دوم ویرایش (EDIT-B)'}); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('300'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('button',{name:'مشتریان',exact:true}).click();
+  await expect(page.getByRole('row').filter({hasText:'اول ویرایش'})).toContainText('100'); await expect(page.getByRole('row').filter({hasText:'دوم ویرایش'})).toContainText('300');
+  await page.getByRole('button',{name:'رسیدات',exact:true}).click(); await page.getByRole('button',{name:'رسید جدید'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('مشتری').selectOption({label:'دوم ویرایش (EDIT-B)'}); await dialog.getByLabel('مبلغ رسید (افغانی)').fill('50'); await dialog.getByLabel('منبع رسید').selectOption('deposit'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  row=page.getByRole('row').filter({hasText:'دوم ویرایش'}); await row.getByRole('button',{name:'جزئیات'}).click(); dialog=page.getByRole('dialog'); await dialog.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('منبع رسید').selectOption('debt'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('button',{name:'مشتریان',exact:true}).click(); row=page.getByRole('row').filter({hasText:'دوم ویرایش'}); await expect(row).toContainText('250');
+  await row.getByRole('button',{name:'کارت حساب'}).click(); await expect(page.getByRole('dialog')).toContainText('250');
+});
