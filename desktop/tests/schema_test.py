@@ -2,6 +2,7 @@
 from pathlib import Path
 import sqlite3
 import re
+import tempfile
 import unittest
 SCHEMA = Path(__file__).resolve().parents[1] / 'src-tauri/migrations/0001_initial.sql'
 class SchemaTest(unittest.TestCase):
@@ -47,5 +48,26 @@ class SchemaTest(unittest.TestCase):
         events = self.db.execute(rows[1]).fetchall()
         self.assertEqual(customers[0][-1], 30000)
         self.assertEqual([event[0] for event in events], ['r', 's'])
+
+    def test_vacuum_backup_query_creates_consistent_separate_snapshot(self):
+        source = (SCHEMA.parent.parent / 'src/service.rs').read_text()
+        self.assertIn('sqlx::query("VACUUM INTO ?")', source)
+        self.db.commit()
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'backup.sqlite3'
+            with target.open('xb'):  # reserve without overwriting an existing file
+                pass
+            self.db.execute("VACUUM INTO ?", (str(target),))
+            backup = sqlite3.connect(f'file:{target}?mode=ro', uri=True)
+            try:
+                self.assertEqual(backup.execute('PRAGMA integrity_check').fetchall(), [('ok',)])
+                self.assertEqual(backup.execute('PRAGMA foreign_key_check').fetchall(), [])
+                self.db.execute("INSERT INTO customers(id,code,name) VALUES('later','C-2','later')")
+                self.db.commit()
+                self.assertEqual(backup.execute('SELECT COUNT(*) FROM customers').fetchone()[0], 1)
+                with self.assertRaises(FileExistsError):
+                    target.open('xb')
+            finally:
+                backup.close()
 
 if __name__ == '__main__': unittest.main()

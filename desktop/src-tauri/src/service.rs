@@ -172,6 +172,45 @@ pub(crate) async fn customer_ledger(db: &SqlitePool, customer_id: String) -> Res
         opening: money(opening), balance: money(balance), rows })
 }
 
+/// Export a consistent SQLite snapshot into a new file. Never replace an existing file.
+/// This is export only; no restore operation is performed here.
+pub(crate) async fn create_backup(db: &SqlitePool, path: PathBuf) -> Result<(), String> {
+    if !path.is_absolute() || path.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase()).as_deref() != Some("sqlite3") {
+        return Err("مسیر کامل فایل با پسوند sqlite3 را انتخاب کنید.".into());
+    }
+    let path_text = path.to_str().ok_or("مسیر فایل معتبر نیست.")?;
+    // Reserve the destination atomically; this also rejects symlinks and existing files.
+    let placeholder = std::fs::OpenOptions::new().write(true).create_new(true).open(&path)
+        .map_err(|e| if e.kind() == std::io::ErrorKind::AlreadyExists {
+            "این فایل قبلاً وجود دارد؛ نام دیگری انتخاب کنید.".to_string()
+        } else { "فایل پشتیبان ایجاد نشد؛ مسیر و اجازهٔ نوشتن را بررسی کنید.".to_string() })?;
+    drop(placeholder);
+    let result = async {
+        // VACUUM INTO works with an empty reserved file and produces a consistent
+        // snapshot without copying a potentially live WAL file.
+        sqlx::query("VACUUM INTO ?").bind(path_text).execute(db).await.map_err(db_error)?;
+        let options = SqliteConnectOptions::new().filename(&path).read_only(true).foreign_keys(true);
+        let backup = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.map_err(db_error)?;
+        let verification = async {
+            let checks: Vec<String> = sqlx::query_scalar("PRAGMA integrity_check").fetch_all(&backup).await.map_err(db_error)?;
+            if checks.len() != 1 || checks[0] != "ok" {
+                return Err("بررسی صحت فایل پشتیبان ناموفق بود.".to_string());
+            }
+            if !sqlx::query("PRAGMA foreign_key_check").fetch_all(&backup).await.map_err(db_error)?.is_empty() {
+                return Err("ارتباطات فایل پشتیبان معتبر نیست.".to_string());
+            }
+            Ok(())
+        }.await;
+        backup.close().await;
+        verification
+    }.await;
+    if result.is_err() {
+        // The file was created by this operation; a partial export is not a backup.
+        let _ = std::fs::remove_file(&path);
+    }
+    result
+}
+
 pub(crate) async fn open_database(path: PathBuf) -> Result<SqlitePool, Box<dyn std::error::Error>> {
     let options = SqliteConnectOptions::new().filename(path).create_if_missing(true).foreign_keys(true);
     let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await?;
@@ -216,6 +255,29 @@ mod tests {
         assert_eq!(ledger.rows[1].balance, ledger.rows[2].balance);
         db.close().await;
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn backup_is_consistent_and_never_overwrites() {
+        let base = std::env::temp_dir().join(format!("farday-backup-test-{}", Uuid::new_v4()));
+        std::fs::create_dir(&base).unwrap();
+        let live = base.join("live.sqlite3");
+        let saved = base.join("backup.sqlite3");
+        let db = open_database(live.clone()).await.unwrap();
+        add_customer(&db, CustomerInput { code: "C-1".into(), name: "مشتری".into(), phone: "".into(), opening: "100".into() }).await.unwrap();
+        create_backup(&db, saved.clone()).await.unwrap();
+        let bytes = std::fs::read(&saved).unwrap();
+        assert!(create_backup(&db, saved.clone()).await.is_err());
+        assert_eq!(std::fs::read(&saved).unwrap(), bytes);
+        assert!(create_backup(&db, live.clone()).await.is_err());
+        assert!(create_backup(&db, base.join("wrong.sql")).await.is_err());
+        add_customer(&db, CustomerInput { code: "C-2".into(), name: "دوم".into(), phone: "".into(), opening: "0".into() }).await.unwrap();
+        let copy = SqlitePoolOptions::new().max_connections(1).connect_with(SqliteConnectOptions::new().filename(&saved).read_only(true).foreign_keys(true)).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM customers").fetch_one(&copy).await.unwrap();
+        assert_eq!(count, 1); // Changes after the snapshot do not alter it.
+        copy.close().await;
+        db.close().await;
+        std::fs::remove_dir_all(base).unwrap();
     }
 
 }

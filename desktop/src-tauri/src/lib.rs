@@ -27,9 +27,15 @@ async fn customer_ledger(db: State<'_, Database>, customer_id: String) -> Result
     service::customer_ledger(&db.0, customer_id).await
 }
 
+#[tauri::command]
+async fn create_backup(db: State<'_, Database>, path: String) -> Result<(), String> {
+    service::create_backup(&db.0, std::path::PathBuf::from(path)).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -37,7 +43,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, add_sale, add_receipt, customer_ledger])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, add_sale, add_receipt, customer_ledger, create_backup])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }
