@@ -45,3 +45,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Build experimental Windows executable
+        run: npm run tauri -- build --debug --no-bundle
+      - name: Upload experimental executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: farday-roshan-windows-experimental
+          path: desktop/src-tauri/target/debug/farday-roshan-desktop.exe
+          if-no-files-found: error
+          retention-days: 7

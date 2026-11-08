@@ -53,3 +53,27 @@ test('browser preview does not pretend to create a real backup', async ({ page }
   await expect(page.getByRole('button', { name: 'انتخاب محل و ساخت پشتیبان' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'انتخاب فایل برای بازگردانی' })).toBeDisabled();
 });
+
+test('Shamsi entry validates leap dates and displays the same stored date in both calendars', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'فروشات', exact: true }).click();
+  await expect(page.getByRole('row').filter({ hasText: 'شرکت ساختمانی امید' }).first()).toContainText('1405/08/17');
+  await page.getByRole('button', { name: 'فروش جدید', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const date = dialog.getByLabel('تاریخ شمسی');
+  await date.fill('۱۴۰۴/۱۲/۳۰');
+  await expect(date).toHaveAttribute('aria-invalid', 'true');
+  await dialog.getByLabel('متراژ (متر مکعب)').fill('1');
+  await dialog.getByLabel('قیمت فی متر (افغانی)').fill('100');
+  await dialog.getByRole('button', { name: 'ذخیره معلومات' }).click();
+  await expect(dialog).toBeVisible();
+  await date.fill('۱۴۰۳/۱۲/۳۰');
+  await expect(date).toHaveAttribute('aria-invalid', 'false');
+  await dialog.getByRole('button', { name: 'ذخیره معلومات' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('row').filter({ hasText: '1403/12/30' })).toHaveCount(1);
+  await page.getByLabel('تقویم نمایش').selectOption('miladi');
+  await expect(page.getByRole('row').filter({ hasText: '2025/03/20' })).toHaveCount(1);
+  await page.getByLabel('جستجو').fill('۲۰۲۵/۰۳/۲۰');
+  await expect(page.getByRole('row').filter({ hasText: '2025/03/20' })).toHaveCount(1);
+});
