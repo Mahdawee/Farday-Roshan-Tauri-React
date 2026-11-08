@@ -4,19 +4,23 @@ use sqlx::{Row, SqlitePool};
 use crate::service::{money, valid_date};
 
 // A single statement provides a consistent SQLite read snapshot across all tables.
-const SUMMARY_SQL: &str = "SELECT
- (SELECT COUNT(*) FROM sales WHERE sale_date BETWEEN ?1 AND ?2) AS sales_count,
- (SELECT COALESCE(SUM(CASE WHEN payment_type='cash' THEN total_cents ELSE 0 END),0) FROM sales WHERE sale_date BETWEEN ?1 AND ?2) AS sales_cash,
- (SELECT COALESCE(SUM(CASE WHEN payment_type='credit' THEN total_cents ELSE 0 END),0) FROM sales WHERE sale_date BETWEEN ?1 AND ?2) AS sales_credit,
- (SELECT COALESCE(SUM(volume_milli),0) FROM sales WHERE sale_date BETWEEN ?1 AND ?2) AS volume,
- (SELECT COUNT(*) FROM receipts WHERE receipt_date BETWEEN ?1 AND ?2) AS receipts_count,
- (SELECT COALESCE(SUM(CASE WHEN source <> 'deposit' THEN amount_cents ELSE 0 END),0) FROM receipts WHERE receipt_date BETWEEN ?1 AND ?2) AS receipts_effective,
- (SELECT COALESCE(SUM(CASE WHEN source = 'deposit' THEN amount_cents ELSE 0 END),0) FROM receipts WHERE receipt_date BETWEEN ?1 AND ?2) AS receipts_deposit,
- (SELECT COUNT(*) FROM expenses WHERE expense_date BETWEEN ?1 AND ?2) AS expenses_count,
- (SELECT COALESCE(SUM(amount_afn_cents),0) FROM expenses WHERE expense_date BETWEEN ?1 AND ?2) AS expenses_afn,
- (SELECT COALESCE(SUM(amount_usd_cents),0) FROM expenses WHERE expense_date BETWEEN ?1 AND ?2) AS expenses_usd,
- (SELECT COUNT(*) FROM salaries WHERE pay_date BETWEEN ?1 AND ?2) AS salaries_count,
- (SELECT COALESCE(SUM(total_cents),0) FROM salaries WHERE pay_date BETWEEN ?1 AND ?2) AS salaries_afn";
+const SUMMARY_SQL: &str = "SELECT * FROM
+ (SELECT COUNT(*) AS sales_count,
+    COALESCE(SUM(CASE WHEN payment_type='cash' THEN total_cents ELSE 0 END),0) AS sales_cash,
+    COALESCE(SUM(CASE WHEN payment_type='credit' THEN total_cents ELSE 0 END),0) AS sales_credit,
+    COALESCE(SUM(volume_milli),0) AS volume
+  FROM sales WHERE sale_date BETWEEN ?1 AND ?2)
+ CROSS JOIN
+ (SELECT COUNT(*) AS receipts_count,
+    COALESCE(SUM(CASE WHEN source <> 'deposit' THEN amount_cents ELSE 0 END),0) AS receipts_effective,
+    COALESCE(SUM(CASE WHEN source = 'deposit' THEN amount_cents ELSE 0 END),0) AS receipts_deposit
+  FROM receipts WHERE receipt_date BETWEEN ?1 AND ?2)
+ CROSS JOIN
+ (SELECT COUNT(*) AS expenses_count, COALESCE(SUM(amount_afn_cents),0) AS expenses_afn, COALESCE(SUM(amount_usd_cents),0) AS expenses_usd
+  FROM expenses WHERE expense_date BETWEEN ?1 AND ?2)
+ CROSS JOIN
+ (SELECT COUNT(*) AS salaries_count, COALESCE(SUM(total_cents),0) AS salaries_afn
+  FROM salaries WHERE pay_date BETWEEN ?1 AND ?2)";
 
 #[derive(Serialize)]
 pub(crate) struct RangeSummary {
