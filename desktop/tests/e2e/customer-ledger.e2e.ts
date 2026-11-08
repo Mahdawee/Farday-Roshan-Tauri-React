@@ -297,3 +297,21 @@ test('daily sheet creates selected employees without overwriting existing record
   await dialog.getByLabel('تاریخ ورق (شمسی)').fill('۱۴۰۴/۰۱/۰۳');
   await expect(dialog.getByLabel('وضعیت کارمند دوم (E2)')).toHaveValue('');
 });
+
+test('sales list pages through its own full history and filters dates', async ({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'فروشات',exact:true}).click();
+  for (let i=0;i<26;i++) {
+    await page.getByRole('button',{name:'فروش جدید',exact:true}).click(); const dialog=page.getByRole('dialog');
+    await dialog.getByLabel('تاریخ شمسی').fill('۱۴۰۴/۰۱/۰۱'); await dialog.getByLabel('متراژ (متر مکعب)').fill('1'); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('10');
+    await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  }
+  await expect(page.getByText('28 رکورد مطابق فیلترها')).toBeVisible();
+  await page.getByRole('button',{name:'صفحهٔ بعدی'}).click(); await expect(page.getByText('صفحهٔ 2',{exact:true})).toBeVisible();
+  await expect(page.getByRole('row').filter({hasText:'1404/01/01'})).toHaveCount(3);
+  await page.getByLabel('از تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۲');
+  await expect(page.getByText('صفحهٔ 1',{exact:true})).toBeVisible();
+  await expect(page.getByText('2 رکورد مطابق فیلترها')).toBeVisible();
+  await page.getByLabel('تا تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۱');
+  await expect(page.getByRole('alert')).toContainText('تاریخ آغاز');
+  await expect(page.getByRole('button',{name:'صفحهٔ بعدی'})).toBeDisabled();
+});

@@ -1,0 +1,57 @@
+//! Paged transaction history; the dashboard's 100 mixed entries are not a ledger.
+use serde::{Deserialize, Serialize};
+use sqlx::{Row, SqlitePool};
+use crate::service::{money, valid_date};
+
+const PAGE_SIZE: i64 = 25;
+#[derive(Deserialize)]
+pub(crate) struct TransactionQuery { kind: String, page: i64, search: String, from: Option<String>, to: Option<String> }
+#[derive(Serialize)]
+pub(crate) struct TransactionRow { id: String, kind: String, date: String, customer_name: String, customer_code: String, detail: String, amount: String }
+#[derive(Serialize)]
+pub(crate) struct TransactionPage { rows: Vec<TransactionRow>, total: i64, page: i64, page_size: i64 }
+fn error(err: sqlx::Error) -> String { eprintln!("Transaction list error: {err}"); "خواندن فهرست عملیات ناموفق بود.".into() }
+
+pub(crate) async fn list(db: &SqlitePool, q: TransactionQuery) -> Result<TransactionPage, String> {
+    if !(0..=1_000_000).contains(&q.page) || q.search.len()>320 { return Err("صفحه یا متن جستجو معتبر نیست.".into()); }
+    if let Some(ref from)=q.from { valid_date(from)?; }
+    if let Some(ref to)=q.to { valid_date(to)?; }
+    if matches!((&q.from, &q.to), (Some(from), Some(to)) if from > to) { return Err("تاریخ آغاز نباید پس از تاریخ پایان باشد.".into()); }
+    // Only these fixed fragments can become SQL; all user values remain parameters.
+    let select = match q.kind.as_str() {
+        "sale" => "SELECT s.id, 'sale' AS kind, s.sale_date AS date, c.name AS customer_name, c.code AS customer_code, s.material || ' · ' || CASE s.payment_type WHEN 'credit' THEN 'باقی' ELSE 'نقده' END AS detail, s.total_cents AS amount, s.created_at AS created_at FROM sales s JOIN customers c ON c.id=s.customer_id",
+        "receipt" => "SELECT r.id, 'receipt' AS kind, r.receipt_date AS date, c.name AS customer_name, c.code AS customer_code, CASE r.source WHEN 'debt' THEN 'باقی داری' WHEN 'deposit' THEN 'امانت' WHEN 'statement' THEN 'بیانیه' ELSE 'پیش پرداخت' END AS detail, r.amount_cents AS amount, r.created_at AS created_at FROM receipts r JOIN customers c ON c.id=r.customer_id",
+        _ => return Err("نوع عملیات معتبر نیست.".into()),
+    };
+    let where_clause = " WHERE (?1 IS NULL OR date >= ?1) AND (?2 IS NULL OR date <= ?2) AND (instr(lower(customer_name),lower(?3))>0 OR instr(lower(customer_code),lower(?3))>0 OR instr(lower(detail),lower(?3))>0 OR instr(date,?3)>0)";
+    let count_query=format!("WITH records AS ({select}) SELECT COUNT(*) FROM records{where_clause}");
+    let rows_query=format!("WITH records AS ({select}) SELECT id,kind,date,customer_name,customer_code,detail,amount FROM records{where_clause} ORDER BY date DESC,created_at DESC,id DESC LIMIT ?4 OFFSET ?5");
+    let mut tx=db.begin().await.map_err(error)?;
+    let total:i64=sqlx::query_scalar(&count_query).bind(&q.from).bind(&q.to).bind(q.search.trim()).fetch_one(&mut *tx).await.map_err(error)?;
+    let rows=sqlx::query(&rows_query).bind(&q.from).bind(&q.to).bind(q.search.trim()).bind(PAGE_SIZE).bind(q.page*PAGE_SIZE).fetch_all(&mut *tx).await.map_err(error)?;
+    let rows=rows.into_iter().map(|r| Ok(TransactionRow { id:r.try_get("id").map_err(error)?, kind:r.try_get("kind").map_err(error)?, date:r.try_get("date").map_err(error)?, customer_name:r.try_get("customer_name").map_err(error)?, customer_code:r.try_get("customer_code").map_err(error)?, detail:r.try_get("detail").map_err(error)?, amount:money(r.try_get("amount").map_err(error)?) })).collect::<Result<Vec<_>,String>>()?;
+    tx.commit().await.map_err(error)?; Ok(TransactionPage { rows, total, page:q.page, page_size:PAGE_SIZE })
+}
+#[cfg(test)]
+mod tests {
+    use super::*; use crate::service::open_database; use uuid::Uuid;
+    fn query(kind:&str,page:i64) -> TransactionQuery { TransactionQuery {kind:kind.into(),page,search:String::new(),from:None,to:None} }
+    #[tokio::test]
+    async fn paginates_each_kind_and_filters_every_record_not_only_the_dashboard() {
+        let path=std::env::temp_dir().join(format!("transaction-pages-{}.sqlite3",Uuid::new_v4())); let db=open_database(path.clone()).await.unwrap();
+        sqlx::query("INSERT INTO customers(id,code,name) VALUES('c','C-1','مشتری')").execute(&db).await.unwrap();
+        for i in 0..130 {
+            sqlx::query("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES(?,'c',?, ?,1000,100,0,100,'credit')")
+                .bind(format!("s{i:03}")).bind(if i<25 {"2024-01-01"} else {"2026-01-01"}).bind(if i==0 {"ویژه %"} else {"ریگ"}).execute(&db).await.unwrap();
+        }
+        sqlx::query("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c','2026-02-01',125,'deposit')").execute(&db).await.unwrap();
+        let first=list(&db,query("sale",0)).await.unwrap(); assert_eq!(first.total,130); assert_eq!(first.rows.len(),25);
+        let last=list(&db,query("sale",5)).await.unwrap(); assert_eq!(last.rows.len(),5); assert!(last.rows.iter().any(|r| r.id=="s000"));
+        let mut filtered=query("sale",0); filtered.search="%".into(); let found=list(&db,filtered).await.unwrap(); assert_eq!(found.total,1); assert_eq!(found.rows[0].id,"s000");
+        let mut filtered=query("sale",0); filtered.from=Some("2024-01-01".into()); filtered.to=Some("2024-01-01".into()); assert_eq!(list(&db,filtered).await.unwrap().total,25);
+        assert_eq!(list(&db,query("receipt",0)).await.unwrap().rows[0].amount,"1.25");
+        assert!(list(&db,query("sale",-1)).await.is_err()); assert!(list(&db,query("bad",0)).await.is_err());
+        let mut invalid=query("sale",0); invalid.from=Some("2025-02-29".into()); assert!(list(&db,invalid).await.is_err());
+        db.close().await; std::fs::remove_file(path).unwrap();
+    }
+}

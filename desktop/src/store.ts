@@ -1,9 +1,10 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { normalizeDateDigits } from './calendar';
-import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store } from './domain';
+import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store } from './domain';
 
 const tauriStore: Store = {
   snapshot: () => invoke<Snapshot>('snapshot'),
+  transactions: query => invoke<TransactionPage>('list_transactions', { query }),
   attendance: () => invoke<Attendance[]>('list_attendance'),
   createAttendanceBatch: (workDate, rows) => invoke('create_attendance_batch', { workDate, rows }),
   saveAttendance: (id, input) => invoke('save_attendance', { id, input }),
@@ -61,6 +62,15 @@ export function createDemoStore(seed = true): Store {
   return {
     async snapshot(): Promise<Snapshot> {
       return structuredClone({ customers, entries, credit_sales: formatScaled(credit), receipts: formatScaled(receipts), total_balance: formatScaled(customers.reduce((a,c) => a + storedCents(c.balance), 0n)) });
+    },
+    async transactions(query) {
+      if (!['sale','receipt'].includes(query.kind) || !Number.isInteger(query.page) || query.page<0 || query.page>1000000 || new TextEncoder().encode(query.search).length>320) throw new Error('صفحه یا متن جستجو معتبر نیست.');
+      if (query.from) validateDate(query.from); if (query.to) validateDate(query.to);
+      if (query.from && query.to && query.from>query.to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
+      const lowerAscii=(text:string)=>text.replace(/[A-Z]/g,c=>c.toLowerCase());
+      const search=lowerAscii(query.search.trim());
+      const rows=entries.filter(e=>e.kind===query.kind && (!query.from || e.date>=query.from) && (!query.to || e.date<=query.to)).map(e=>({...e,customer_code:customers.find(c=>c.id===e.customer_id)?.code || ''})).filter(e=>[e.customer_name,e.customer_code,e.detail,e.date].some(s=>lowerAscii(s).includes(search))).sort((a,b)=>b.date.localeCompare(a.date));
+      return structuredClone({ rows:rows.slice(query.page*25,query.page*25+25), total:rows.length, page:query.page, page_size:25 });
     },
     async attendance() {
       return structuredClone(attendance.map(a => { const e=staff.find(employee=>employee.id===a.employee_id); return e ? {...a,employee_name:e.name,employee_code:e.code} : a; }).sort((a,b)=>b.work_date.localeCompare(a.work_date)));
@@ -194,6 +204,7 @@ export function createDemoStore(seed = true): Store {
 export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
+  transactions: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   snapshot: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   createAttendanceBatch: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   attendance: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

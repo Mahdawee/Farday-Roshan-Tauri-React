@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowDownLeft, ArrowLeft, ArrowUpLeft, Archive, Box, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock3, FileBarChart, LayoutDashboard, Menu, Package, Plus, ReceiptText, Search, Settings, ShieldCheck, ShoppingCart, Users, Wallet, X } from 'lucide-react';
-import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
+import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, TransactionPage, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
 import { inDesktop, store } from './store';
 import { BackupInfo, chooseBackup, createBackup, restoreBackup } from './backup';
 import { attendanceLabels, summarizeAttendance } from './attendance';
@@ -42,7 +42,7 @@ function App() {
   useEffect(() => { refresh().catch(e => setError(String(e))).finally(() => setLoading(false)); }, []);
   const navigate = (p: Page) => { setPage(p); setSearch(''); setMenuOpen(false); };
   const saved = async () => { closeModal(); try { await refresh(); setError(''); setNotice('معلومات با موفقیت ثبت شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } };
-  const recent = snapshot.entries.filter(x => (page === 'dashboard' || (page === 'sales' && x.kind === 'sale') || (page === 'receipts' && x.kind === 'receipt')) && normalizeDateDigits(`${x.customer_name} ${x.detail} ${x.date} ${displayCalendarDate(x.date, calendar)}`).includes(normalizeDateDigits(search)));
+  const recent = snapshot.entries;
   const customers = snapshot.customers.filter(c => `${c.code} ${c.name} ${c.phone}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="app-shell">
     {menuOpen && <button className="scrim" aria-label="بستن منو" onClick={() => setMenuOpen(false)} />}
@@ -74,7 +74,8 @@ function App() {
         {page === 'salaries' && <SalaryList key={calendar} salaries={salaries} staff={staff} calendar={calendar} loading={loading} edit={setSalaryModal}/>}
         {page === 'expenses' && <ExpenseList key={calendar} expenses={expenses} calendar={calendar} loading={loading} edit={setExpenseModal}/>}
         {page === 'employees' && <EmployeeList staff={staff} calendar={calendar} loading={loading} edit={setEmployeeModal}/>}
-        {page !== 'dashboard' && page !== 'backup' && page !== 'employees' && page !== 'expenses' && page !== 'salaries' && page !== 'attendance' && <section className="panel listing"><div className="panel-head list-header"><div><h2>{page === 'customers' ? 'فهرست مشتریان' : page === 'sales' ? 'فهرست فروشات' : 'فهرست رسیدات'}</h2><p>{page === 'customers' ? `${snapshot.customers.length} مشتری ثبت شده` : 'حداکثر ۱۰۰ فعالیت اخیر نمایش داده می‌شود'}</p></div><label className="search"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." aria-label="جستجو"/></label></div>{page === 'customers' ? <CustomerTable customers={customers} loading={loading} openLedger={setLedgerId} edit={editCustomer}/> : <Entries entries={recent} loading={loading} calendar={calendar}/>}</section>}
+        {page === 'customers' && <section className="panel listing"><div className="panel-head list-header"><div><h2>فهرست مشتریان</h2><p>{snapshot.customers.length} مشتری ثبت شده</p></div><label className="search"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." aria-label="جستجو"/></label></div><CustomerTable customers={customers} loading={loading} openLedger={setLedgerId} edit={editCustomer}/></section>}
+        {(page === 'sales' || page === 'receipts') && <TransactionList key={`${page}-${calendar}`} kind={page === 'sales' ? 'sale' : 'receipt'} calendar={calendar} revision={snapshot}/>}
         <footer><span>© سیستم مدیریت فردای روشن</span><span>ساخته‌شده برای کار بهتر، هر روز.</span></footer>
       </main>
     </div>
@@ -91,6 +92,31 @@ function Stat({ icon,label,value,unit,note,color }: { icon: React.ReactNode; lab
 function Quick({icon,title,text,onClick}: {icon:React.ReactNode;title:string;text:string;onClick:()=>void}) { return <button className="quick" onClick={onClick}><span className="quick-icon">{icon}</span><span><b>{title}</b><small>{text}</small></span><ArrowLeft size={17}/></button>; }
 function CustomerTable({ customers, loading, openLedger, edit }: { customers: Snapshot['customers']; loading: boolean; openLedger: (id: string) => void; edit: (customer: Customer) => void }) { return <div className="table-wrap"><table><thead><tr><th>مشتری</th><th>کد مشتری</th><th>شماره تماس</th><th>مانده حساب</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{customers.map((c,i) => <tr key={c.id}><td><div className="person"><span className={`person-avatar p${i%4}`}>{c.name.slice(0,1)}</span><b>{c.name}</b></div></td><td><span className="code" dir="ltr">{c.code}</span></td><td dir="ltr" className="ltr-cell">{c.phone || '—'}</td><td><b dir="ltr">{displayMoney(c.balance)}</b> <span className="unit">افغانی</span></td><td><span className={`badge ${c.balance === '0.00' ? 'good' : c.balance.startsWith('-') ? 'blue-badge' : 'warn'}`}>{c.balance === '0.00' ? 'تصفیه شده' : c.balance.startsWith('-') ? 'بستانکار' : 'دارای مانده'}</span></td><td><button className="text-button" onClick={() => openLedger(c.id)}>کارت حساب <ArrowLeft size={14}/></button> <button className="text-button" onClick={() => edit(c)}>ویرایش</button></td></tr>)}</tbody></table>{!customers.length && <div className="empty">{loading ? 'در حال بارگذاری...' : 'هنوز مشتری‌ای برای نمایش وجود ندارد.'}</div>}</div>; }
 function Entries({ entries,loading,calendar }: { entries: Snapshot['entries']; loading:boolean; calendar:Calendar }) { return <div className="table-wrap"><table><thead><tr><th>نوع فعالیت</th><th>مشتری</th><th>شرح</th><th>{calendar === 'shamsi' ? 'تاریخ شمسی' : 'تاریخ میلادی'}</th><th>مبلغ</th></tr></thead><tbody>{entries.map(e => <tr key={e.id}><td><div className="activity-type"><span className={`activity-icon ${e.kind}`} >{e.kind === 'sale' ? <ArrowUpLeft size={17}/> : <ArrowDownLeft size={17}/>}</span><b>{e.kind === 'sale' ? 'فروش' : 'رسید'}</b></div></td><td>{e.customer_name}</td><td className="muted">{e.detail}</td><td><span dir="ltr" className="code">{displayCalendarDate(e.date, calendar)}</span></td><td><b dir="ltr">{displayMoney(e.amount)}</b> <span className="unit">افغانی</span></td></tr>)}</tbody></table>{!entries.length && <div className="empty">{loading ? 'در حال بارگذاری...' : 'هنوز فعالیتی برای نمایش وجود ندارد.'}</div>}</div>; }
+
+function TransactionList({ kind, calendar, revision }: { kind: 'sale' | 'receipt'; calendar: Calendar; revision: Snapshot }) {
+  const [search,setSearch]=useState(''); const [from,setFrom]=useState(''); const [to,setTo]=useState(''); const [page,setPage]=useState(0);
+  const [data,setData]=useState<TransactionPage | null>(null); const [error,setError]=useState(''); const [loading,setLoading]=useState(true);
+  useEffect(()=>{
+    let active=true;
+    const start=from.trim() ? parseCalendarDate(from,calendar) : null; const end=to.trim() ? parseCalendarDate(to,calendar) : null;
+    setData(null); setError('');
+    if ((from.trim() && !start) || (to.trim() && !end)) { setLoading(false); setError('تاریخ آغاز یا پایان معتبر نیست.'); return ()=>{active=false;}; }
+    if (start && end && start>end) { setLoading(false); setError('تاریخ آغاز نباید پس از تاریخ پایان باشد.'); return ()=>{active=false;}; }
+    const normalized=normalizeDateDigits(search.trim());
+    const text=parseCalendarDate(normalized,calendar) ?? normalized;
+    setLoading(true);
+    const timer=window.setTimeout(()=>{store.transactions({kind,page,search:text,from:start,to:end}).then(result=>{if(active) setData(result);}).catch(e=>{if(active) setError(String(e));}).finally(()=>{if(active) setLoading(false);});},120);
+    return ()=>{active=false;window.clearTimeout(timer);};
+  },[kind,page,search,from,to,calendar,revision]);
+  return <section className="panel listing"><div className="panel-head list-header"><div><h2>{kind === 'sale' ? 'فهرست فروشات' : 'فهرست رسیدات'}</h2><p>{data ? `${data.total} رکورد مطابق فیلترها · هر صفحه ${data.page_size} رکورد` : error ? 'فیلترها را بررسی کنید' : 'در حال بررسی فهرست'} · تغییر تقویم فیلترها را پاک می‌کند.</p></div><label className="search"><Search size={17}/><input value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}} placeholder="جستجو..." aria-label="جستجو"/></label></div>
+    <div className="expense-filters"><Field label={`از تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={from} onChange={e=>{setFrom(e.target.value);setPage(0);}} placeholder={calendar === 'shamsi' ? '1405/01/01' : '2026/03/21'}/></Field><Field label={`تا تاریخ (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})`}><input dir="ltr" value={to} onChange={e=>{setTo(e.target.value);setPage(0);}} placeholder={calendar === 'shamsi' ? '1405/12/29' : '2027/03/20'}/></Field></div>
+    {error && <div className="error expense-feedback" role="alert">{error}</div>}
+    {data && <div className="table-wrap"><table><thead><tr><th>مشتری</th><th>کد مشتری</th><th>شرح</th><th>تاریخ</th><th>مبلغ</th></tr></thead><tbody>{data.rows.map(e=><tr key={e.id}><td>{e.customer_name}</td><td><span className="code" dir="ltr">{e.customer_code}</span></td><td>{e.detail}</td><td><span className="code" dir="ltr">{displayCalendarDate(e.date,calendar)}</span></td><td><b dir="ltr">{displayMoney(e.amount)}</b> <span className="unit">افغانی</span></td></tr>)}</tbody></table>{!data.rows.length && <div className="empty">رکوردی برای نمایش وجود ندارد.</div>}</div>}
+    {loading && <div className="empty" role="status">در حال بارگذاری...</div>}
+    <div className="pagination"><button className="btn secondary" disabled={loading || page===0} onClick={()=>setPage(p=>p-1)}>صفحهٔ قبلی</button><span>صفحهٔ {page+1}</span><button className="btn secondary" disabled={loading || !data || (page+1)*data.page_size>=data.total} onClick={()=>setPage(p=>p+1)}>صفحهٔ بعدی</button></div>
+    <div className="form-hint">جستجو در نام و کد مشتری، شرح و تاریخ انجام می‌شود؛ برای جستجوی تاریخ، تاریخ کامل را در تقویم انتخاب‌شده وارد کنید. تغییر اطلاعات هم‌زمان می‌تواند ترتیب صفحه‌ها را عوض کند.</div>
+  </section>;
+}
 
 function AttendanceList({ records, staff, calendar, loading, edit }: { records: Attendance[]; staff: Employee[]; calendar: Calendar; loading: boolean; edit:(record:Attendance)=>void }) {
   const [search,setSearch]=useState(''); const [from,setFrom]=useState(''); const [to,setTo]=useState('');
