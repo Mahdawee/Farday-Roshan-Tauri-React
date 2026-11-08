@@ -81,4 +81,12 @@ class SchemaTest(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("INSERT INTO employees(id,code,name,status) VALUES ('e4','EMP-4','bad','invalid')")
 
+    def test_expenses_migration_separates_currencies_and_requires_positive_amount(self):
+        self.db.executescript((SCHEMA.parent / '0003_expenses.sql').read_text())
+        self.db.execute("INSERT INTO expenses(id,expense_date,description,amount_afn_cents,amount_usd_cents,payment_method) VALUES ('x','2026-01-01','تیل',10050,525,'cash')")
+        self.assertEqual(self.db.execute("SELECT amount_afn_cents,amount_usd_cents FROM expenses").fetchone(), (10050,525))
+        for afn, usd, method in [(0,0,'cash'),(-1,100,'cash'),(1000000000001,0,'cash'),(100,0,'invalid')]:
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.db.execute("INSERT INTO expenses(id,expense_date,description,amount_afn_cents,amount_usd_cents,payment_method) VALUES ('bad','2026-01-01','x',?,?,?)", (afn,usd,method))
+
 if __name__ == '__main__': unittest.main()

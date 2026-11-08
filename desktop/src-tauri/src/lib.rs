@@ -1,5 +1,6 @@
 mod service;
 mod employees;
+mod expenses;
 mod restore;
 use service::{CustomerInput, ReceiptInput, SaleInput, Snapshot, Ledger};
 use sqlx::SqlitePool;
@@ -58,6 +59,11 @@ async fn save_employee(db: State<'_, Database>, id: Option<String>, input: emplo
     employees::save(&db.0, id, input).await
 }
 
+#[tauri::command]
+async fn list_expenses(db: State<'_, Database>) -> Result<Vec<expenses::Expense>, String> { expenses::list(&db.0).await }
+#[tauri::command]
+async fn save_expense(db: State<'_, Database>, id: Option<String>, input: expenses::ExpenseInput) -> Result<(), String> { expenses::save(&db.0, id, input).await }
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -69,7 +75,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }

@@ -119,3 +119,30 @@ test('editing customer preserves transactions and updates the balance', async ({
   await expect(page.getByRole('dialog')).toContainText('42,100');
   await expect(page.getByRole('dialog')).toContainText('شرکت ویرایش شده');
 });
+
+
+test('records and edits an expense with separate currencies and calendar conversion', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name:'مصارف', exact:true }).click();
+  await page.getByRole('button', { name:'مصرف جدید' }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ شمسی').fill('۱۴۰۴/۰۱/۰۱');
+  await dialog.getByLabel('شرح مصرف').fill('تیل آزمایشی');
+  await dialog.getByLabel('نوع مصرف').fill('سوخت');
+  await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('بیشتر از صفر');
+  await dialog.getByLabel('مبلغ افغانی').fill('۱۲۳.۵۰');
+  await dialog.getByLabel('مبلغ دالری').fill('5.25');
+  await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
+  let row = page.getByRole('row').filter({ hasText:'تیل آزمایشی' });
+  await expect(row).toContainText('1404/01/01'); await expect(row).toContainText('123.50'); await expect(row).toContainText('5.25');
+  await row.getByRole('button', { name:'ویرایش' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('روش پرداخت').selectOption('credit');
+  await dialog.getByLabel('مبلغ افغانی').fill('0');
+  await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
+  row = page.getByRole('row').filter({ hasText:'تیل آزمایشی' });
+  await expect(row).toContainText('باقی'); await expect(row).toContainText('5.25');
+  await page.getByLabel('تقویم نمایش').selectOption('miladi');
+  await expect(row).toContainText('2025/03/21');
+});

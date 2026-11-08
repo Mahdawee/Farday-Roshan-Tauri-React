@@ -1,8 +1,10 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { Customer, CustomerInput, Employee, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, Snapshot, Store } from './domain';
+import { Customer, CustomerInput, Employee, Expense, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, Snapshot, Store } from './domain';
 
 const tauriStore: Store = {
   snapshot: () => invoke<Snapshot>('snapshot'),
+  expenses: () => invoke<Expense[]>('list_expenses'),
+  saveExpense: (id, input) => invoke('save_expense', { id, input }),
   employees: () => invoke<Employee[]>('list_employees'),
   saveEmployee: (id, input) => invoke('save_employee', { id, input }),
   ledger: customerId => invoke<Ledger>('customer_ledger', { customerId }),
@@ -20,6 +22,7 @@ export function createDemoStore(seed = true): Store {
     { id: 'demo-3', code: 'CUS-003', name: 'موسسه راه و ساختمان', phone: '0788 321 654', opening: '0.00', balance: '0.00' },
   ];
   const staff: Employee[] = seed ? [{ id: 'demo-staff-1', code: 'EMP-001', name: 'احمد احمدی', father_name: 'کریم', job_title: 'راننده', hire_date: '2025-03-21', base_salary: '15000.00', phone: '0700123456', status: 'active' }] : [];
+  const expenses: Expense[] = [];
   type DemoEntry = Entry & { customer_id: string; affects_balance: boolean };
   const entries: DemoEntry[] = [
     { id: 'demo-e1', customer_id: 'demo-1', affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
@@ -50,6 +53,23 @@ export function createDemoStore(seed = true): Store {
   return {
     async snapshot(): Promise<Snapshot> {
       return structuredClone({ customers, entries, credit_sales: formatScaled(credit), receipts: formatScaled(receipts), total_balance: formatScaled(customers.reduce((a,c) => a + storedCents(c.balance), 0n)) });
+    },
+    async expenses() { return structuredClone(expenses.slice().sort((a,b) => b.date.localeCompare(a.date))); },
+    async saveExpense(id, input) {
+      validateDate(input.date);
+      const fields = { description: input.description.trim(), expense_type: input.expense_type.trim(), purchase_bill_no: input.purchase_bill_no.trim(), shop_name: input.shop_name.trim(), payer: input.payer.trim(), notes: input.notes.trim() };
+      if (!fields.description) throw new Error('شرح مصرف الزامی است.');
+      const bytes = (s: string) => new TextEncoder().encode(s).length;
+      if (bytes(fields.description) > 1000 || bytes(fields.expense_type) > 320 || bytes(fields.purchase_bill_no) > 320 || bytes(fields.shop_name) > 320 || bytes(fields.payer) > 320 || bytes(fields.notes) > 4000) throw new Error('متن واردشده بیش از حد طولانی است.');
+      if (!['cash','credit'].includes(input.payment_method)) throw new Error('روش پرداخت معتبر نیست.');
+      const afn = parseScaled(input.amount_afn, 2), usd = parseScaled(input.amount_usd, 2);
+      if (afn === 0n && usd === 0n) throw new Error('حداقل یکی از مبلغ‌های افغانی یا دالری باید بیشتر از صفر باشد.');
+      const expense: Expense = { ...input, ...fields, amount_afn: formatScaled(afn), amount_usd: formatScaled(usd), id: id || crypto.randomUUID() };
+      if (id) {
+        const index = expenses.findIndex(e => e.id === id);
+        if (index < 0) throw new Error('مصرف انتخاب‌شده وجود ندارد.');
+        expenses[index] = expense;
+      } else expenses.unshift(expense);
     },
     async employees() { return structuredClone(staff); },
     async saveEmployee(id, input) {
@@ -121,6 +141,8 @@ export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
   snapshot: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  expenses: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  saveExpense: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   employees: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   saveEmployee: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   ledger: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

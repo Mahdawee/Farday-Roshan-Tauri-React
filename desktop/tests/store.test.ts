@@ -66,3 +66,20 @@ describe('employee records', () => {
     await expect(s.saveEmployee(null, { ...employee, code:'EMP-2', hire_date:'2025-02-29' })).rejects.toThrow();
   });
 });
+
+
+describe('expense records', () => {
+  it('keeps currencies separate, supports editing and rejects invalid values', async () => {
+    const s = createDemoStore(false);
+    const expense = { date:'2025-03-21', description:'تیل', expense_type:'سوخت', purchase_bill_no:'B-1', shop_name:'دوکان', amount_afn:'۱۰۰.۵۰', amount_usd:'5.25', payer:'دخل', payment_method:'cash' as const, notes:'یادداشت' };
+    await expect(s.saveExpense(null, { ...expense, amount_afn:'0', amount_usd:'0' })).rejects.toThrow();
+    await expect(s.saveExpense(null, { ...expense, date:'2025-02-29' })).rejects.toThrow();
+    await s.saveExpense(null, expense);
+    const [saved] = await s.expenses();
+    expect(saved.amount_afn).toBe('100.50'); expect(saved.amount_usd).toBe('5.25');
+    await s.saveExpense(saved.id, { ...expense, amount_afn:'0', payment_method:'credit' });
+    expect(await s.expenses()).toMatchObject([{ id:saved.id, amount_afn:'0.00', amount_usd:'5.25', payment_method:'credit' }]);
+    await expect(s.saveExpense('missing', expense)).rejects.toThrow();
+    expect(await s.expenses()).toHaveLength(1);
+  });
+});
