@@ -70,4 +70,15 @@ class SchemaTest(unittest.TestCase):
             finally:
                 backup.close()
 
+    def test_employee_migration_enforces_unique_code_and_salary(self):
+        migration = SCHEMA.parent / '0002_employees.sql'
+        self.db.executescript(migration.read_text())
+        self.db.execute("INSERT INTO employees(id,code,name,base_salary_cents) VALUES ('e','EMP-1','کارمند',100)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO employees(id,code,name) VALUES ('e2','emp-1','تکراری')")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO employees(id,code,name,base_salary_cents) VALUES ('e3','EMP-3','bad',-1)")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO employees(id,code,name,status) VALUES ('e4','EMP-4','bad','invalid')")
+
 if __name__ == '__main__': unittest.main()

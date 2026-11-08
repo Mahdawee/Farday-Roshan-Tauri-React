@@ -77,3 +77,27 @@ test('Shamsi entry validates leap dates and displays the same stored date in bot
   await page.getByLabel('جستجو').fill('۲۰۲۵/۰۳/۲۰');
   await expect(page.getByRole('row').filter({ hasText: '2025/03/20' })).toHaveCount(1);
 });
+
+test('create and edit an employee with a Shamsi hire date', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'کارمندان', exact: true }).click();
+  await page.getByRole('button', { name: 'کارمند جدید' }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByLabel('کد کارمند').fill('EMP-123');
+  await dialog.getByLabel('نام و تخلص').fill('کارمند نمونه');
+  await dialog.getByLabel('وظیفه', { exact: true }).fill('حسابدار');
+  await dialog.getByLabel('تاریخ استخدام (شمسی)').fill('۱۴۰۴/۰۱/۰۱');
+  await dialog.getByLabel('معاش پایه (افغانی)').fill('12500.50');
+  await dialog.getByRole('button', { name: 'ذخیره معلومات' }).click();
+  let row = page.getByRole('row').filter({ hasText: 'کارمند نمونه' });
+  await expect(row).toContainText('1404/01/01');
+  await expect(row).toContainText('12,500.50');
+  await row.getByRole('button', { name: 'ویرایش' }).click();
+  dialog = page.getByRole('dialog');
+  await dialog.getByLabel('وضعیت').selectOption('inactive');
+  await dialog.getByRole('button', { name: 'ذخیره معلومات' }).click();
+  row = page.getByRole('row').filter({ hasText: 'کارمند نمونه' });
+  await expect(row).toContainText('غیرفعال');
+  await page.getByLabel('تقویم نمایش').selectOption('miladi');
+  await expect(row).toContainText('2025/03/21');
+});

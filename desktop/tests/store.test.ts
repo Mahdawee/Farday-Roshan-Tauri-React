@@ -34,3 +34,20 @@ describe('temporary preview workflow', () => {
     await expect(s.ledger('missing')).rejects.toThrow();
   });
 });
+
+describe('employee records', () => {
+  it('creates, edits and deactivates without losing the record', async () => {
+    const s = createDemoStore(false);
+    const employee = { code:'EMP-1', name:'کارمند', father_name:'پدر', job_title:'راننده', hire_date:'2025-03-21', base_salary:'۱۵۰۰۰.۵۰', phone:'0700', status:'active' as const };
+    await s.saveEmployee(null, employee);
+    const [saved] = await s.employees();
+    expect(saved.base_salary).toBe('15000.50');
+    await expect(s.saveEmployee(null, { ...employee, code:'emp-1' })).rejects.toThrow();
+    await s.saveEmployee(saved.id, { ...employee, status:'inactive' });
+    const [updated] = await s.employees();
+    expect(updated.id).toBe(saved.id);
+    expect(updated.status).toBe('inactive');
+    await expect(s.saveEmployee('missing', employee)).rejects.toThrow();
+    await expect(s.saveEmployee(null, { ...employee, code:'EMP-2', hire_date:'2025-02-29' })).rejects.toThrow();
+  });
+});

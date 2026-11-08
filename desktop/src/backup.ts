@@ -13,8 +13,8 @@ export async function createBackup(): Promise<boolean> {
   return true;
 }
 
-export interface BackupInfo { customers: number; sales: number; receipts: number }
-export interface RestoreResult extends BackupInfo { safety_backup: string }
+export interface BackupInfo { schema_version: number; customers: number; sales: number; receipts: number; employees: number }
+export interface RestoreResult { safety_backup: string; customers: number; sales: number; receipts: number; employees: number }
 
 export async function chooseBackup(): Promise<{ path: string; info: BackupInfo } | null> {
   if (!inDesktop) throw new Error('بازگردانی فقط در نسخهٔ دسکتاپ قابل استفاده است.');

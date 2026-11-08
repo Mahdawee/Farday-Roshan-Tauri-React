@@ -19,7 +19,7 @@ struct Entry { id: String, kind: String, date: String, customer_name: String, de
 #[derive(Serialize)]
 pub(crate) struct Snapshot { customers: Vec<Customer>, entries: Vec<Entry>, credit_sales: String, receipts: String, total_balance: String }
 
-fn scaled(raw: &str, decimals: u32) -> Result<i64, String> {
+pub(crate) fn scaled(raw: &str, decimals: u32) -> Result<i64, String> {
     let normalized: String = raw.trim().chars().filter_map(|c| match c {
         '۰'..='۹' => char::from_u32('0' as u32 + c as u32 - '۰' as u32),
         '٠'..='٩' => char::from_u32('0' as u32 + c as u32 - '٠' as u32),
@@ -41,7 +41,7 @@ fn scaled(raw: &str, decimals: u32) -> Result<i64, String> {
     if value > MAX { return Err("عدد واردشده بیش از حد مجاز است.".into()); }
     Ok(value as i64)
 }
-fn money(value: i64) -> String {
+pub(crate) fn money(value: i64) -> String {
     let value = value as i128;
     format!("{}{}.{:02}", if value < 0 { "-" } else { "" }, value.abs() / 100, value.abs() % 100)
 }

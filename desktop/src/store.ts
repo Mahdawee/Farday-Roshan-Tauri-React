@@ -1,8 +1,10 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { Customer, CustomerInput, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, Snapshot, Store } from './domain';
+import { Customer, CustomerInput, Employee, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, Snapshot, Store } from './domain';
 
 const tauriStore: Store = {
   snapshot: () => invoke<Snapshot>('snapshot'),
+  employees: () => invoke<Employee[]>('list_employees'),
+  saveEmployee: (id, input) => invoke('save_employee', { id, input }),
   ledger: customerId => invoke<Ledger>('customer_ledger', { customerId }),
   addCustomer: input => invoke('add_customer', { input }),
   addSale: input => invoke('add_sale', { input }),
@@ -16,6 +18,7 @@ export function createDemoStore(seed = true): Store {
     { id: 'demo-2', code: 'CUS-002', name: 'احمد رحمانی', phone: '0799 456 123', opening: '0.00', balance: '18000.00' },
     { id: 'demo-3', code: 'CUS-003', name: 'موسسه راه و ساختمان', phone: '0788 321 654', opening: '0.00', balance: '0.00' },
   ];
+  const staff: Employee[] = seed ? [{ id: 'demo-staff-1', code: 'EMP-001', name: 'احمد احمدی', father_name: 'کریم', job_title: 'راننده', hire_date: '2025-03-21', base_salary: '15000.00', phone: '0700123456', status: 'active' }] : [];
   type DemoEntry = Entry & { customer_id: string; affects_balance: boolean };
   const entries: DemoEntry[] = [
     { id: 'demo-e1', customer_id: 'demo-1', affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
@@ -46,6 +49,20 @@ export function createDemoStore(seed = true): Store {
   return {
     async snapshot(): Promise<Snapshot> {
       return structuredClone({ customers, entries, credit_sales: formatScaled(credit), receipts: formatScaled(receipts), total_balance: formatScaled(customers.reduce((a,c) => a + storedCents(c.balance), 0n)) });
+    },
+    async employees() { return structuredClone(staff); },
+    async saveEmployee(id, input) {
+      const code = input.code.trim(), name = input.name.trim();
+      if (!code || !name) throw new Error('کد و نام کارمند الزامی است.');
+      if (staff.some(e => e.id !== id && e.code.toLowerCase() === code.toLowerCase())) throw new Error('کد کارمند قبلاً ثبت شده است.');
+      if (input.hire_date) validateDate(input.hire_date);
+      const base_salary = formatScaled(parseScaled(input.base_salary, 2));
+      const employee = { ...input, code, name, base_salary, id: id || crypto.randomUUID() };
+      if (id) {
+        const index = staff.findIndex(e => e.id === id);
+        if (index < 0) throw new Error('کارمند انتخاب‌شده وجود ندارد.');
+        staff[index] = employee;
+      } else staff.push(employee);
     },
     async ledger(customerId): Promise<Ledger> {
       const customer = customers.find(c => c.id === customerId);
@@ -92,6 +109,8 @@ export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
   snapshot: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  employees: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  saveEmployee: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   ledger: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addCustomer: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addSale: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

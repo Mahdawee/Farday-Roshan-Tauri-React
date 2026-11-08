@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowDownLeft, ArrowLeft, ArrowUpLeft, Archive, Box, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock3, FileBarChart, LayoutDashboard, Menu, Package, Plus, ReceiptText, Search, Settings, ShieldCheck, ShoppingCart, Users, Wallet, X } from 'lucide-react';
-import { CustomerInput, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, formatScaled } from './domain';
+import { CustomerInput, Employee, EmployeeInput, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, formatScaled } from './domain';
 import { inDesktop, store } from './store';
 import { BackupInfo, chooseBackup, createBackup, restoreBackup } from './backup';
 import { Calendar, displayCalendarDate, normalizeDateDigits, parseCalendarDate, todayKabul } from './calendar';
 import './style.css';
 
-type Page = 'dashboard' | 'customers' | 'sales' | 'receipts' | 'backup';
+type Page = 'dashboard' | 'customers' | 'sales' | 'receipts' | 'employees' | 'backup';
 type Modal = 'customer' | 'sale' | 'receipt' | null;
-const pageTitles: Record<Page, string> = { dashboard: 'داشبورد', customers: 'مشتریان', sales: 'فروشات', receipts: 'رسیدات', backup: 'پشتیبان‌گیری' };
+const pageTitles: Record<Page, string> = { dashboard: 'داشبورد', customers: 'مشتریان', sales: 'فروشات', receipts: 'رسیدات', employees: 'کارمندان', backup: 'پشتیبان‌گیری' };
 const empty: Snapshot = { customers: [], entries: [], credit_sales: '0.00', receipts: '0.00', total_balance: '0.00' };
 
 function App() {
@@ -20,10 +20,12 @@ function App() {
   const [error, setError] = useState('');
   const [modal, setModal] = useState<Modal>(null);
   const [ledgerId, setLedgerId] = useState<string | null>(null);
+  const [staff, setStaff] = useState<Employee[]>([]);
+  const [employeeModal, setEmployeeModal] = useState<Employee | 'new' | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState('');
-  const refresh = async () => { const next = await store.snapshot(); setSnapshot(next); };
+  const refresh = async () => { const [next, employees] = await Promise.all([store.snapshot(), store.employees()]); setSnapshot(next); setStaff(employees); };
   useEffect(() => { refresh().catch(e => setError(String(e))).finally(() => setLoading(false)); }, []);
   const navigate = (p: Page) => { setPage(p); setSearch(''); setMenuOpen(false); };
   const saved = async () => { setModal(null); try { await refresh(); setError(''); setNotice('معلومات با موفقیت ثبت شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } };
@@ -35,10 +37,10 @@ function App() {
       <div className="brand"><div className="brand-mark"><Box size={23} strokeWidth={1.8}/></div><div><strong>فردای روشن</strong><span>سیستم مدیریت شرکت</span></div></div>
       <div className="side-label">فضای کاری</div>
       <nav className="nav" aria-label="منوی اصلی">
-        {([[LayoutDashboard, 'داشبورد', 'dashboard'], [Users, 'مشتریان', 'customers'], [ShoppingCart, 'فروشات', 'sales'], [ReceiptText, 'رسیدات', 'receipts'], [Archive, 'پشتیبان‌گیری', 'backup']] as const).map(([Icon,label,p]) => <button key={p} className={page === p ? 'active' : ''} onClick={() => navigate(p)}><Icon size={19}/><span>{label}</span>{page === p && <span className="nav-dot"/>}</button>)}
+        {([[LayoutDashboard, 'داشبورد', 'dashboard'], [Users, 'مشتریان', 'customers'], [Users, 'کارمندان', 'employees'], [ShoppingCart, 'فروشات', 'sales'], [ReceiptText, 'رسیدات', 'receipts'], [Archive, 'پشتیبان‌گیری', 'backup']] as const).map(([Icon,label,p]) => <button key={p} className={page === p ? 'active' : ''} onClick={() => navigate(p)}><Icon size={19}/><span>{label}</span>{page === p && <span className="nav-dot"/>}</button>)}
       </nav>
       <div className="side-label section-label">در مراحل بعدی</div>
-      <div className="nav pending">{([[Users,'کارمندان'],[Wallet,'مصارف و معاشات'],[FileBarChart,'راپورها'],[Settings,'تنظیمات']] as const).map(([Icon,label]) => <div key={label}><Icon size={18}/><span>{label}</span><small>به‌زودی</small></div>)}</div>
+      <div className="nav pending">{([[Wallet,'مصارف و معاشات'],[FileBarChart,'راپورها'],[Settings,'تنظیمات']] as const).map(([Icon,label]) => <div key={label}><Icon size={18}/><span>{label}</span><small>به‌زودی</small></div>)}</div>
       <div className="side-bottom"><div className="side-status"><span className="status-dot"/><div><b>{inDesktop ? 'نسخهٔ محلی' : 'پیش‌نمایش آزمایشی'}</b><small>{inDesktop ? 'ذخیره روی این دستگاه' : 'اطلاعات موقت مرورگر'}</small></div></div><p>نسخهٔ اولیه · ۰.۱</p></div>
     </aside>
     <div className="workspace">
@@ -48,17 +50,19 @@ function App() {
         {inDesktop && <div className="demo-banner"><ShieldCheck size={18}/><span><b>نسخهٔ اولیه:</b> هنوز ورود کاربران و انتقال اطلاعات آماده نیستند؛ بازیابی نیازمند آزمایش بیشتر است؛ برای داده‌های واقعی شرکت استفاده نشود.</span></div>}
         {notice && <div className="notice"><Check size={17}/>{notice}</div>}
         {error && <div className="error" role="alert">{error}</div>}
-        <div className="page-heading"><div><div className="eyebrow"><span/> مدیریت کسب‌وکار</div><h1>{page === 'dashboard' ? 'سلام، به فردای روشن خوش آمدید' : pageTitles[page]}</h1><p>{page === 'dashboard' ? 'نمایی روشن از فعالیت‌ها و حساب‌های شرکت در یک نگاه.' : page === 'customers' ? 'مشتریان و مانده حساب آن‌ها را در یک جا مدیریت کنید.' : page === 'sales' ? 'فروشات نقدی و قرضه را ثبت و دنبال کنید.' : page === 'receipts' ? 'رسیدهای مشتریان و پرداخت‌های دریافتی را ثبت کنید.' : 'یک نسخهٔ جداگانه از معلومات محلی تهیه کنید.'}</p></div><div className="heading-actions">{page !== 'backup' && <>{page === 'dashboard' && <button className="btn secondary" onClick={() => setModal('receipt')}><Plus size={17}/> ثبت رسید</button>}<button className="btn primary" onClick={() => setModal(page === 'customers' ? 'customer' : page === 'receipts' ? 'receipt' : 'sale')}><Plus size={18}/>{page === 'customers' ? 'مشتری جدید' : page === 'receipts' ? 'رسید جدید' : 'فروش جدید'}</button></>}</div></div>
+        <div className="page-heading"><div><div className="eyebrow"><span/> مدیریت کسب‌وکار</div><h1>{page === 'dashboard' ? 'سلام، به فردای روشن خوش آمدید' : pageTitles[page]}</h1><p>{page === 'dashboard' ? 'نمایی روشن از فعالیت‌ها و حساب‌های شرکت در یک نگاه.' : page === 'customers' ? 'مشتریان و مانده حساب آن‌ها را در یک جا مدیریت کنید.' : page === 'employees' ? 'معلومات، وضعیت و معاش پایهٔ کارمندان را مدیریت کنید.' : page === 'sales' ? 'فروشات نقدی و قرضه را ثبت و دنبال کنید.' : page === 'receipts' ? 'رسیدهای مشتریان و پرداخت‌های دریافتی را ثبت کنید.' : 'یک نسخهٔ جداگانه از معلومات محلی تهیه کنید.'}</p></div><div className="heading-actions">{page !== 'backup' && <>{page === 'dashboard' && <button className="btn secondary" onClick={() => setModal('receipt')}><Plus size={17}/> ثبت رسید</button>}<button className="btn primary" onClick={() => page === 'employees' ? setEmployeeModal('new') : setModal(page === 'customers' ? 'customer' : page === 'receipts' ? 'receipt' : 'sale')}><Plus size={18}/>{page === 'customers' ? 'مشتری جدید' : page === 'employees' ? 'کارمند جدید' : page === 'receipts' ? 'رسید جدید' : 'فروش جدید'}</button></>}</div></div>
         {page === 'dashboard' && <>
           <div className="stats-grid"><Stat icon={<Users/>} label="مجموع مشتریان" value={String(snapshot.customers.length)} unit="مشتری" note="مشتریان ثبت‌شده" color="teal"/><Stat icon={<ShoppingCart/>} label="فروشات قرضه" value={displayMoney(snapshot.credit_sales)} unit="افغانی" note="مجموع تمام دوره‌ها" color="blue"/><Stat icon={<ArrowDownLeft/>} label="رسیدات دریافتی" value={displayMoney(snapshot.receipts)} unit="افغانی" note="شامل تمام منابع رسید" color="green"/><Stat icon={<Wallet/>} label="مانده حساب مشتریان" value={displayMoney(snapshot.total_balance)} unit="افغانی" note="مانده خالص همه مشتریان" color="amber"/></div>
           <div className="content-grid"><section className="panel activity-panel"><div className="panel-head"><div><h2>آخرین فعالیت‌ها</h2><p>آخرین فروشات و رسیدهای ثبت‌شده</p></div><button className="text-button" onClick={() => navigate('sales')}>همه فروشات <ArrowLeft size={15}/></button></div><Entries entries={recent.slice(0,6)} loading={loading} calendar={calendar}/></section><section className="panel quick-panel"><div className="panel-head"><div><h2>دسترسی سریع</h2><p>کارهای روزانه را سریع‌تر انجام دهید</p></div></div><div className="quick-list"><Quick icon={<Users/>} title="مشتری جدید" text="افزودن به فهرست مشتریان" onClick={() => setModal('customer')}/><Quick icon={<ShoppingCart/>} title="ثبت فروش" text="ایجاد یک فروش جدید" onClick={() => setModal('sale')}/><Quick icon={<ReceiptText/>} title="ثبت رسید" text="ثبت مبلغ دریافتی از مشتری" onClick={() => setModal('receipt')}/></div><div className="quick-note"><Package size={19}/><div><b>یک شروع تازه</b><p>بخش‌های دیگر سیستم در مراحل بعدی اضافه می‌شوند.</p></div></div></section></div>
           <section className="panel customers-panel"><div className="panel-head"><div><h2>مشتریان اخیر</h2><p>نگاهی به حساب مشتریان شما</p></div><button className="text-button" onClick={() => navigate('customers')}>مشاهده مشتریان <ArrowLeft size={15}/></button></div><CustomerTable customers={snapshot.customers.slice(0,5)} loading={loading} openLedger={setLedgerId}/></section>
         </>}
         {page === 'backup' && <BackupPanel onRestored={refresh}/>}
-        {page !== 'dashboard' && page !== 'backup' && <section className="panel listing"><div className="panel-head list-header"><div><h2>{page === 'customers' ? 'فهرست مشتریان' : page === 'sales' ? 'فهرست فروشات' : 'فهرست رسیدات'}</h2><p>{page === 'customers' ? `${snapshot.customers.length} مشتری ثبت شده` : 'حداکثر ۱۰۰ فعالیت اخیر نمایش داده می‌شود'}</p></div><label className="search"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." aria-label="جستجو"/></label></div>{page === 'customers' ? <CustomerTable customers={customers} loading={loading} openLedger={setLedgerId}/> : <Entries entries={recent} loading={loading} calendar={calendar}/>}</section>}
+        {page === 'employees' && <EmployeeList staff={staff} calendar={calendar} loading={loading} edit={setEmployeeModal}/>}
+        {page !== 'dashboard' && page !== 'backup' && page !== 'employees' && <section className="panel listing"><div className="panel-head list-header"><div><h2>{page === 'customers' ? 'فهرست مشتریان' : page === 'sales' ? 'فهرست فروشات' : 'فهرست رسیدات'}</h2><p>{page === 'customers' ? `${snapshot.customers.length} مشتری ثبت شده` : 'حداکثر ۱۰۰ فعالیت اخیر نمایش داده می‌شود'}</p></div><label className="search"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." aria-label="جستجو"/></label></div>{page === 'customers' ? <CustomerTable customers={customers} loading={loading} openLedger={setLedgerId}/> : <Entries entries={recent} loading={loading} calendar={calendar}/>}</section>}
         <footer><span>© سیستم مدیریت فردای روشن</span><span>ساخته‌شده برای کار بهتر، هر روز.</span></footer>
       </main>
     </div>
+    {employeeModal && <EmployeeModal employee={employeeModal} calendar={calendar} close={() => setEmployeeModal(null)} saved={async () => { setEmployeeModal(null); try { await refresh(); setNotice('معلومات کارمند ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {ledgerId && <LedgerModal calendar={calendar} customerId={ledgerId} close={() => setLedgerId(null)}/>}
     {modal && <FormModal calendar={calendar} kind={modal} snapshot={snapshot} close={() => setModal(null)} saved={saved}/>}
   </div>;
@@ -67,6 +71,32 @@ function Stat({ icon,label,value,unit,note,color }: { icon: React.ReactNode; lab
 function Quick({icon,title,text,onClick}: {icon:React.ReactNode;title:string;text:string;onClick:()=>void}) { return <button className="quick" onClick={onClick}><span className="quick-icon">{icon}</span><span><b>{title}</b><small>{text}</small></span><ArrowLeft size={17}/></button>; }
 function CustomerTable({ customers, loading, openLedger }: { customers: Snapshot['customers']; loading: boolean; openLedger: (id: string) => void }) { return <div className="table-wrap"><table><thead><tr><th>مشتری</th><th>کد مشتری</th><th>شماره تماس</th><th>مانده حساب</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{customers.map((c,i) => <tr key={c.id}><td><div className="person"><span className={`person-avatar p${i%4}`}>{c.name.slice(0,1)}</span><b>{c.name}</b></div></td><td><span className="code" dir="ltr">{c.code}</span></td><td dir="ltr" className="ltr-cell">{c.phone || '—'}</td><td><b dir="ltr">{displayMoney(c.balance)}</b> <span className="unit">افغانی</span></td><td><span className={`badge ${c.balance === '0.00' ? 'good' : c.balance.startsWith('-') ? 'blue-badge' : 'warn'}`}>{c.balance === '0.00' ? 'تصفیه شده' : c.balance.startsWith('-') ? 'بستانکار' : 'دارای مانده'}</span></td><td><button className="text-button" onClick={() => openLedger(c.id)}>کارت حساب <ArrowLeft size={14}/></button></td></tr>)}</tbody></table>{!customers.length && <div className="empty">{loading ? 'در حال بارگذاری...' : 'هنوز مشتری‌ای برای نمایش وجود ندارد.'}</div>}</div>; }
 function Entries({ entries,loading,calendar }: { entries: Snapshot['entries']; loading:boolean; calendar:Calendar }) { return <div className="table-wrap"><table><thead><tr><th>نوع فعالیت</th><th>مشتری</th><th>شرح</th><th>{calendar === 'shamsi' ? 'تاریخ شمسی' : 'تاریخ میلادی'}</th><th>مبلغ</th></tr></thead><tbody>{entries.map(e => <tr key={e.id}><td><div className="activity-type"><span className={`activity-icon ${e.kind}`} >{e.kind === 'sale' ? <ArrowUpLeft size={17}/> : <ArrowDownLeft size={17}/>}</span><b>{e.kind === 'sale' ? 'فروش' : 'رسید'}</b></div></td><td>{e.customer_name}</td><td className="muted">{e.detail}</td><td><span dir="ltr" className="code">{displayCalendarDate(e.date, calendar)}</span></td><td><b dir="ltr">{displayMoney(e.amount)}</b> <span className="unit">افغانی</span></td></tr>)}</tbody></table>{!entries.length && <div className="empty">{loading ? 'در حال بارگذاری...' : 'هنوز فعالیتی برای نمایش وجود ندارد.'}</div>}</div>; }
+
+function EmployeeList({ staff, calendar, loading, edit }: { staff: Employee[]; calendar: Calendar; loading: boolean; edit: (employee: Employee) => void }) {
+  const [search, setSearch] = useState('');
+  const rows = staff.filter(e => `${e.code} ${e.name} ${e.father_name} ${e.job_title} ${e.phone}`.toLowerCase().includes(search.toLowerCase()));
+  return <section className="panel listing"><div className="panel-head list-header"><div><h2>فهرست کارمندان</h2><p>{staff.length} کارمند ثبت شده · {staff.filter(e => e.status === 'active').length} فعال</p></div><label className="search"><Search size={17}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="جستجو..." aria-label="جستجوی کارمندان"/></label></div>
+    <div className="table-wrap"><table><thead><tr><th>نام کارمند</th><th>کد</th><th>وظیفه</th><th>تاریخ استخدام</th><th>معاش پایه</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{rows.map(e => <tr key={e.id}><td><div className="person"><span className="person-avatar">{e.name.slice(0,1)}</span><b>{e.name}</b></div></td><td><span className="code" dir="ltr">{e.code}</span></td><td>{e.job_title || '—'}</td><td><span className="code" dir="ltr">{e.hire_date ? displayCalendarDate(e.hire_date, calendar) : '—'}</span></td><td><b dir="ltr">{displayMoney(e.base_salary)}</b> <span className="unit">افغانی</span></td><td><span className={`badge ${e.status === 'active' ? 'good' : 'warn'}`}>{e.status === 'active' ? 'فعال' : 'غیرفعال'}</span></td><td><button className="text-button" onClick={() => edit(e)}>ویرایش</button></td></tr>)}</tbody></table>{!rows.length && <div className="empty">{loading ? 'در حال بارگذاری...' : 'کارمندی برای نمایش وجود ندارد.'}</div>}</div>
+  </section>;
+}
+function EmployeeModal({ employee, calendar, close, saved }: { employee: Employee | 'new'; calendar: Calendar; close: () => void; saved: () => Promise<void> }) {
+  const initial: EmployeeInput = employee === 'new' ? {code:'',name:'',father_name:'',job_title:'',hire_date:null,base_salary:'0',phone:'',status:'active'} : { ...employee };
+  const [data, setData] = useState<EmployeeInput>(initial);
+  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => { e.preventDefault(); setBusy(true); setError(''); try { await store.saveEmployee(employee === 'new' ? null : employee.id, data); await saved(); } catch (err) { setError(String(err)); } finally { setBusy(false); } };
+  return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) close(); }}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="employee-title"><div className="modal-head"><div><span className="eyebrow"><span/> مدیریت کارمندان</span><h2 id="employee-title">{employee === 'new' ? 'کارمند جدید' : 'ویرایش کارمند'}</h2><p>معلومات کارمند را وارد کنید.</p></div><button className="icon-button" disabled={busy} aria-label="بستن" onClick={close}><X size={20}/></button></div>
+    <form onSubmit={submit}>{error && <div className="error" role="alert">{error}</div>}<div className="form-grid">
+      <Field label="کد کارمند" required><input required value={data.code} onChange={e=>setData({...data,code:e.target.value})}/></Field>
+      <Field label="نام و تخلص" required><input required value={data.name} onChange={e=>setData({...data,name:e.target.value})}/></Field>
+      <Field label="نام پدر"><input value={data.father_name} onChange={e=>setData({...data,father_name:e.target.value})}/></Field>
+      <Field label="وظیفه"><input value={data.job_title} onChange={e=>setData({...data,job_title:e.target.value})}/></Field>
+      <DateField calendar={calendar} value={data.hire_date || ''} title="تاریخ استخدام" required={false} onChange={date=>setData({...data,hire_date:date || null})}/>
+      <Field label="معاش پایه (افغانی)" required><input required inputMode="decimal" value={data.base_salary} onChange={e=>setData({...data,base_salary:e.target.value})}/></Field>
+      <Field label="شماره تماس"><input value={data.phone} onChange={e=>setData({...data,phone:e.target.value})}/></Field>
+      <Field label="وضعیت"><select value={data.status} onChange={e=>setData({...data,status:e.target.value as EmployeeInput['status']})}><option value="active">فعال</option><option value="inactive">غیرفعال</option></select></Field>
+    </div><div className="form-hint">حذف کارمند در این نسخه انجام نمی‌شود؛ برای حفظ سوابق می‌توانید او را غیرفعال کنید.</div><div className="modal-actions"><button type="button" className="btn secondary" disabled={busy} onClick={close}>انصراف</button><button type="submit" disabled={busy} className="btn primary">{busy ? 'در حال ذخیره...' : 'ذخیره معلومات'} <Check size={17}/></button></div></form>
+  </div></div>;
+}
 
 function BackupPanel({ onRestored }: { onRestored: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
@@ -106,7 +136,7 @@ function BackupPanel({ onRestored }: { onRestored: () => Promise<void> }) {
     <div className="backup-buttons"><button className="btn primary backup-action" disabled={!inDesktop || busy} onClick={run}><Archive size={17}/>{busy ? 'در حال بررسی...' : 'انتخاب محل و ساخت پشتیبان'}</button><button className="btn secondary backup-action" disabled={!inDesktop || busy} onClick={choose}>انتخاب فایل برای بازگردانی</button></div>
     {selection && <div className="modal-backdrop"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="restore-title">
       <div className="modal-head"><div><span className="eyebrow"><span/> عملیات حساس</span><h2 id="restore-title">تأیید بازگردانی</h2><p>پیش از ادامه معلومات فایل را بررسی کنید.</p></div><button className="icon-button" disabled={busy} aria-label="بستن" onClick={() => setSelection(null)}><X size={20}/></button></div>
-      <div className="backup-instructions restore-warning"><b>تمام اطلاعات فعلی نسخهٔ جدید جایگزین می‌شود.</b><p>یک نسخهٔ ایمنی از وضعیت فعلی در پوشهٔ دادهٔ برنامه ساخته می‌شود. فایل در هنگام بازگردانی دوباره بررسی می‌شود.</p><p className="backup-result" dir="auto">{selection.path}</p><p>مشتریان: {selection.info.customers} · فروشات: {selection.info.sales} · رسیدات: {selection.info.receipts}</p></div>
+      <div className="backup-instructions restore-warning"><b>تمام اطلاعات فعلی نسخهٔ جدید جایگزین می‌شود.</b><p>یک نسخهٔ ایمنی از وضعیت فعلی در پوشهٔ دادهٔ برنامه ساخته می‌شود. فایل در هنگام بازگردانی دوباره بررسی می‌شود.</p><p className="backup-result" dir="auto">{selection.path}</p><p>مشتریان: {selection.info.customers} · فروشات: {selection.info.sales} · رسیدات: {selection.info.receipts} · کارمندان: {selection.info.employees}</p>{selection.info.schema_version === 1 && <p><b>این فایل قدیمی کارمند ندارد؛ کارمندان فعلی حذف می‌شوند و در نسخهٔ ایمنی باقی می‌مانند.</b></p>}</div>
       <label className="field restore-confirm"><span>برای تأیید، کلمهٔ «بازگردانی» را بنویسید</span><input value={confirmation} disabled={busy} onChange={e => setConfirmation(e.target.value)} autoComplete="off"/></label>
       {error && <div className="error" role="alert">{error}</div>}
       <div className="modal-actions"><button className="btn secondary" disabled={busy} onClick={() => setSelection(null)}>انصراف</button><button className="btn danger" disabled={busy || confirmation !== 'بازگردانی'} onClick={restore}>{busy ? 'در حال بازگردانی...' : 'تأیید و بازگردانی'}</button></div>
@@ -151,11 +181,11 @@ function FormModal({ kind, snapshot, close, saved, calendar }: { kind: Exclude<M
     <div className="form-hint">{kind === 'sale' ? 'مجموع = متراژ × (قیمت فی متر + کرایه فی متر)' : kind === 'receipt' ? 'رسید امانت از ماندهٔ بدهی مشتری کم نمی‌شود.' : 'ماندهٔ حساب از بدهی اولیه، فروش قرضه و رسیدهای مؤثر محاسبه می‌شود.'}</div><div className="modal-actions"><button type="button" className="btn secondary" onClick={close}>انصراف</button><button type="submit" disabled={busy || (kind !== 'customer' && !snapshot.customers.length)} className="btn primary">{busy ? 'در حال ثبت...' : 'ذخیره معلومات'} <Check size={17}/></button></div>
   </form></div></div>;
 }
-function DateField({ calendar, value, onChange }: { calendar: Calendar; value: string; onChange: (iso: string) => void }) {
+function DateField({ calendar, value, onChange, required = true, title }: { calendar: Calendar; value: string; onChange: (iso: string) => void; required?: boolean; title?: string }) {
   const [text, setText] = useState(() => displayCalendarDate(value, calendar));
   const [invalid, setInvalid] = useState(false);
-  const label = calendar === 'shamsi' ? 'تاریخ شمسی' : 'تاریخ میلادی';
-  return <Field label={label} required><input required type="text" inputMode="numeric" dir="ltr" value={text}
+  const label = title ? `${title} (${calendar === 'shamsi' ? 'شمسی' : 'میلادی'})` : calendar === 'shamsi' ? 'تاریخ شمسی' : 'تاریخ میلادی';
+  return <Field label={label} required={required}><input required={required} type="text" inputMode="numeric" dir="ltr" value={text}
     placeholder={calendar === 'shamsi' ? '1405/01/01' : '2026/03/21'} aria-invalid={invalid}
     onChange={e => {
       const next = e.target.value;
