@@ -1,0 +1,55 @@
+# ---- سیستم مدیریت فردای روشن ----
+DirectoryIndex index.php
+Options -Indexes
+
+# جلوگیری از دسترسی به فایل‌های حساس
+<FilesMatch "\.(sql|log|md|ini|lock)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+# کدگذاری پیش‌فرض
+AddDefaultCharset UTF-8
+
+# ---------------------------------------------------------------------------
+#  کش مرورگر برای فایل‌های ثابت — بارگذاری سریع‌تر صفحات تکراری
+#  (فایل‌ها با ?v=تاریخ تغییر نسخه‌بندی شده‌اند، پس کش بی‌خطر است)
+# ---------------------------------------------------------------------------
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 30 days"
+  ExpiresByType application/javascript "access plus 30 days"
+  ExpiresByType image/svg+xml "access plus 30 days"
+  ExpiresByType image/png "access plus 30 days"
+  ExpiresByType image/jpeg "access plus 30 days"
+  ExpiresByType image/x-icon "access plus 30 days"
+  ExpiresByType font/woff2 "access plus 30 days"
+  ExpiresByType application/font-woff2 "access plus 30 days"
+</IfModule>
+<IfModule mod_headers.c>
+  <FilesMatch "\.(css|js|svg|png|jpg|jpeg|ico|woff2?)$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+  Header set X-Content-Type-Options "nosniff"
+</IfModule>
+
+# ---------------------------------------------------------------------------
+#  فشرده‌سازی (gzip) — صفحات و فایل‌ها سریع‌تر به مرورگر می‌رسند
+# ---------------------------------------------------------------------------
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css text/xml
+  AddOutputFilterByType DEFLATE application/javascript application/json application/xml
+  AddOutputFilterByType DEFLATE image/svg+xml
+  # فایل‌های فشرده‌شده دوباره فشرده نشوند
+  SetEnvIfNoCase Request_URI \.(?:woff2?|png|jpe?g|gif|ico|zip)$ no-gzip dont-vary
+</IfModule>

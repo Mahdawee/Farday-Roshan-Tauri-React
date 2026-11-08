@@ -1,0 +1,39 @@
+{
+  // تنظیمات پیشنهادی VS Code برای کار روی این پروژه
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": false,
+  "files.eol": "\n",
+  "editor.tabSize": 4,
+  "editor.insertSpaces": true,
+  "editor.rulers": [120],
+  "files.associations": {
+    "*.php": "php"
+  },
+  "files.exclude": {
+    "backups/*.sql": true
+  },
+  "search.exclude": {
+    "backups/**": true,
+    "assets/*.min.*": true
+  },
+  // پورت سرور PHP به صورت خودکار فوروارد شود (Codespaces / Remote / Dev Container)
+  "remote.autoForwardPorts": true,
+  "remote.autoForwardPortsSource": "hybrid",
+  "remote.restoreForwardedPorts": true,
+  // پیشنهاد باز کردن مرورگر وقتی سرور بالا می‌آید
+  "remote.portsAttributes": {
+    "8080": {
+      "label": "سیستم فردای روشن",
+      "onAutoForward": "openBrowser",
+      "elevateIfNeeded": false
+    },
+    "3306": {
+      "label": "دیتابیس MySQL/MariaDB (فوروارد نکنید)",
+      "onAutoForward": "ignore"
+    }
+  },
+  "intelephense.environment.phpVersion": "8.3.0",
+  "[php]": {
+    "editor.defaultFormatter": "bmewburn.vscode-intelephense-client"
+  }
+}

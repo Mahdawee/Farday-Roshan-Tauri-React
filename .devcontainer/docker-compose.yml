@@ -1,0 +1,33 @@
+# محیط توسعه محلی برای VS Code (Dev Container)
+# دو سرویس: app (PHP) و db (MariaDB)
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/php:1-8.3-bookworm
+    volumes:
+      - ..:/workspace:cached
+    command: sleep infinity
+    ports:
+      - "8080:8080"        # پورت سیستم فردای روشن (این همان پورتی است که فوروارد می‌شود)
+    environment:
+      DB_HOST: db
+      DB_NAME: farday_roshan
+      DB_USER: root
+      DB_PASS: root
+    depends_on:
+      - db
+
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: farday_roshan
+    volumes:
+      - db-data:/var/lib/mysql
+    # پورت ۳۳۰۶ به بیرون باز نمی‌شود (برای امنیت)؛
+    # اگر با ابزار دیتابیس VS Code می‌خواهید وصل شوید، سطر زیر را از حالت تعلیق خارج کنید:
+    # ports:
+    #   - "127.0.0.1:3306:3306"
+
+volumes:
+  db-data:

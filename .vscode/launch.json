@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "گوش دادن به Xdebug (PHP)",
+      "type": "php",
+      "request": "launch",
+      "port": 9003,
+      "pathMappings": {
+        "/workspaces/${workspaceFolderBasename}": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "اجرای فایل PHP فعلی",
+      "type": "php",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": ["-d", "display_errors=1"]
+    }
+  ]
+}

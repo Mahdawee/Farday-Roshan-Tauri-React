@@ -1,0 +1,63 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "۱) نصب / بروزرسانی دیتابیس",
+      "type": "shell",
+      "command": "php install_cli.php",
+      "windows": { "command": "php install_cli.php" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "detail": "ساخت جداول و معلومات اولیه — گزینه --demo برای معلومات نمونه. نصب از مرورگر هم ممکن است: install.php"
+    },
+    {
+      "label": "۲) شروع سیستم (سرور PHP) — فوروارد پورت 8080",
+      "type": "shell",
+      "command": "php -S 0.0.0.0:8080 -t .",
+      "windows": { "command": "php -S 0.0.0.0:8080 -t ." },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [{ "regexp": "^$" }],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Development Server"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "detail": "خروجی: http://localhost:8080 — اگر داخل Codespaces/Container هستید، از تب PORTS همان پورت را باز کنید"
+    },
+    {
+      "label": "۳) بررسی سلامت سیستم (doctor.php)",
+      "type": "shell",
+      "command": "php doctor.php",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "detail": "چک کردن PHP، افزونه‌ها، اتصال دیتابیس و پوشه‌های قابل نوشتن"
+    },
+    {
+      "label": "خاموش کردن سرور (آزاد کردن پورت)",
+      "type": "shell",
+      "windows": { "command": "for /f \"tokens=5\" %a in ('netstat -ano ^| findstr :8080') do taskkill /F /PID %a" },
+      "command": "kill -9 $(lsof -t -i:8080) 2>/dev/null || true",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "۴) ساخت پشتیبان دیتابیس (backup_cli.php)",
+      "type": "shell",
+      "command": "php backup_cli.php",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "detail": "فایل .sql در پوشه backups/ ساخته می‌شود — بازگردانی از خود صفحه «پشتیبان‌گیری» انجام شود"
+    },
+    {
+      "label": "۵) باز کردن سیستم در مرورگر",
+      "type": "shell",
+      "command": "xdg-open http://localhost:8080/ 2>/dev/null || open http://localhost:8080/ 2>/dev/null || true",
+      "windows": { "command": "start http://localhost:8080/" },
+      "problemMatcher": [],
+      "detail": "آدرس http://localhost:8080 در مرورگر باز می‌شود (داخل Codespaces از تب PORTS استفاده کنید)"
+    }
+  ]
+}
