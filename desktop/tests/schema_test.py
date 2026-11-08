@@ -1,0 +1,51 @@
+"""Smoke-test the migration with Python's built-in SQLite."""
+from pathlib import Path
+import sqlite3
+import re
+import unittest
+SCHEMA = Path(__file__).resolve().parents[1] / 'src-tauri/migrations/0001_initial.sql'
+class SchemaTest(unittest.TestCase):
+    def setUp(self):
+        self.db = sqlite3.connect(':memory:')
+        self.db.execute('PRAGMA foreign_keys=ON')
+        self.db.executescript(SCHEMA.read_text())
+        self.db.execute("INSERT INTO customers(id,code,name,opening_cents) VALUES('c','CUS-001','مشتری',10000)")
+    def tearDown(self): self.db.close()
+    def test_foreign_keys_and_validation(self):
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','missing','2026-01-01',100,'debt')")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO customers(id,code,name) VALUES('other','cus-001','duplicate')")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c','2026-01-01',0,'debt')")
+    def test_deposit_does_not_reduce_balance(self):
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2026-01-01','ماسه',1000,20000,0,20000,'credit')")
+        self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r1','c','2026-01-01',4000,'debt'),('r2','c','2026-01-01',5000,'deposit')")
+        result = self.db.execute("SELECT c.opening_cents + COALESCE((SELECT SUM(s.total_cents) FROM sales s WHERE s.customer_id=c.id AND s.payment_type='credit'),0) - COALESCE((SELECT SUM(r.amount_cents) FROM receipts r WHERE r.customer_id=c.id AND r.source <> 'deposit'),0) FROM customers c WHERE c.id='c'").fetchone()[0]
+        self.assertEqual(result, 26000)
+    def test_actual_ledger_query_excludes_cash_and_keeps_deposit(self):
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s1','c','2026-01-01','ماسه',1000,20000,0,20000,'credit'),('s2','c','2026-01-02','ریگ',1000,5000,0,5000,'cash')")
+        self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r1','c','2026-01-03',4000,'debt'),('r2','c','2026-01-04',5000,'deposit')")
+        source = (SCHEMA.parent.parent / 'src/service.rs').read_text()
+        match = re.search(r'let events = sqlx::query\("(.*?)"\)', source, re.S)
+        self.assertIsNotNone(match)
+        rows = self.db.execute(match.group(1), ('c', 'c')).fetchall()
+        self.assertEqual([r[0] for r in rows], ['s1', 'r1', 'r2'])
+        self.assertEqual([r[5] for r in rows], [1, 1, 0])
+        running = 10000
+        for _, _, kind, _, amount, affects, _ in rows:
+            if affects: running += amount if kind == 'sale' else -amount
+        self.assertEqual(running, 26000)
+
+    def test_actual_snapshot_query(self):
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2026-01-01','ماسه',1000,20000,0,20000,'credit')")
+        self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c','2026-01-02',5000,'deposit')")
+        source = (SCHEMA.parent.parent / 'src/service.rs').read_text()
+        rows = re.findall(r'let rows = sqlx::query\("(.*?)"\)', source, re.S)
+        self.assertEqual(len(rows), 2)
+        customers = self.db.execute(rows[0]).fetchall()
+        events = self.db.execute(rows[1]).fetchall()
+        self.assertEqual(customers[0][-1], 30000)
+        self.assertEqual([event[0] for event in events], ['r', 's'])
+
+if __name__ == '__main__': unittest.main()

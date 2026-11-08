@@ -1,0 +1,22 @@
+# Local configuration and private database backups
+/config.local.php
+/backups/*.sql
+/backups/*.zip
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.sandbox/
+
+# Desktop build artifacts and local databases
+/desktop/node_modules/
+/desktop/dist/
+/desktop/src-tauri/target/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+/desktop/*.tsbuildinfo
+/desktop/test-results/
+/desktop/playwright-report/
