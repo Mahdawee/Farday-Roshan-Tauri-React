@@ -53,7 +53,7 @@ pub(crate) async fn export_csv(db:&SqlitePool, from:String, to:String, expected:
     let actual=range_summary(db,from.clone(),to.clone()).await?;
     if actual!=expected { return Err("جمع‌های راپور تغییر کرده‌اند؛ ابتدا دوباره محاسبه کنید.".into()); }
     // Every text cell below is a fixed label or a validated ISO date; values are formatted integers.
-    let content=format!("\u{feff}شاخص,مقدار,واحد\r\nاز تاریخ,{from},میلادی\r\nتا تاریخ,{to},میلادی\r\nتعداد فروش,{},رکورد\r\nفروش نقده,{},افغانی\r\nفروش باقی,{},افغانی\r\nمتراژ فروش,{},متر مکعب\r\nتعداد رسید,{},رکورد\r\nرسیدهای مؤثر بر بدهی,{},افغانی\r\nرسید امانت,{},افغانی\r\nتعداد مصارف,{},رکورد\r\nمصارف افغانی,{},افغانی\r\nمصارف دالری,{},دالر\r\nتعداد معاشات,{},رکورد\r\nمعاشات,{},افغانی\r\n", actual.sales_count, actual.sales_cash, actual.sales_credit, actual.volume, actual.receipts_count, actual.receipts_effective, actual.receipts_deposit, actual.expenses_count, actual.expenses_afn, actual.expenses_usd, actual.salaries_count, actual.salaries_afn);
+    let content=format!("\u{feff}شاخص,مقدار,واحد\r\nاز تاریخ,{from},میلادی\r\nتا تاریخ,{to},میلادی\r\nتوضیح,راپور آزمایشی؛ موجودی دخل یا سود و زیان نیست,\r\nتوضیح,مصارف نقده و باقی شامل‌اند؛ ارزها تبدیل نمی‌شوند,\r\nتوضیح,امانت از بدهی کم نمی‌شود؛ معاش بر مبنای تاریخ پرداخت است,\r\nتعداد فروش,{},رکورد\r\nفروش نقده,{},افغانی\r\nفروش باقی,{},افغانی\r\nمتراژ فروش,{},متر مکعب\r\nتعداد رسید,{},رکورد\r\nرسیدهای مؤثر بر بدهی,{},افغانی\r\nرسید امانت,{},افغانی\r\nتعداد مصارف,{},رکورد\r\nمصارف افغانی,{},افغانی\r\nمصارف دالری,{},دالر\r\nتعداد معاشات,{},رکورد\r\nمعاشات,{},افغانی\r\n", actual.sales_count, actual.sales_cash, actual.sales_credit, actual.volume, actual.receipts_count, actual.receipts_effective, actual.receipts_deposit, actual.expenses_count, actual.expenses_afn, actual.expenses_usd, actual.salaries_count, actual.salaries_afn);
     // create_new prevents replacing existing reports or following an existing symlink.
     let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(path)
         .map_err(|_| "فایل ساخته نشد؛ مسیر را بررسی کنید و نام فایل جدید انتخاب کنید.".to_string())?;
@@ -81,7 +81,7 @@ mod tests {
         let expected=range_summary(&db,from.clone(),to.clone()).await.unwrap();
         export_csv(&db,from.clone(),to.clone(),expected,&target).await.unwrap();
         let bytes=std::fs::read(&target).unwrap(); assert!(bytes.starts_with(&[0xef,0xbb,0xbf]));
-        let text=String::from_utf8(bytes.clone()).unwrap(); assert!(text.contains("مصارف افغانی,1.25,افغانی")); assert!(text.contains("مصارف دالری,5.25,دالر"));
+        let text=String::from_utf8(bytes.clone()).unwrap(); assert!(text.contains("راپور آزمایشی؛ موجودی دخل یا سود و زیان نیست")); assert!(text.contains("مصارف افغانی,1.25,افغانی")); assert!(text.contains("مصارف دالری,5.25,دالر"));
         let expected=range_summary(&db,from.clone(),to.clone()).await.unwrap(); assert!(export_csv(&db,from,to,expected,&target).await.is_err()); assert_eq!(std::fs::read(&target).unwrap(),bytes);
         db.close().await; std::fs::remove_file(path).unwrap(); std::fs::remove_file(target).unwrap();
     }
