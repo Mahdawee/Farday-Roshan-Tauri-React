@@ -101,3 +101,21 @@ test('create and edit an employee with a Shamsi hire date', async ({ page }) => 
   await page.getByLabel('تقویم نمایش').selectOption('miladi');
   await expect(row).toContainText('2025/03/21');
 });
+
+
+test('editing customer preserves transactions and updates the balance', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'مشتریان', exact: true }).click();
+  const row = page.getByRole('row').filter({ hasText: 'شرکت ساختمانی امید' });
+  await row.getByRole('button', { name: 'ویرایش' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('تغییر بدهی اولیه');
+  await dialog.getByLabel('نام مشتری / شرکت').fill('شرکت ویرایش شده');
+  await dialog.getByLabel('بدهی اولیه (افغانی)').fill('100');
+  await dialog.getByRole('button', { name: 'ذخیره معلومات' }).click();
+  const edited = page.getByRole('row').filter({ hasText: 'شرکت ویرایش شده' });
+  await expect(edited).toContainText('42,100');
+  await edited.getByRole('button', { name: 'کارت حساب' }).click();
+  await expect(page.getByRole('dialog')).toContainText('42,100');
+  await expect(page.getByRole('dialog')).toContainText('شرکت ویرایش شده');
+});

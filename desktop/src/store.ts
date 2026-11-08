@@ -7,6 +7,7 @@ const tauriStore: Store = {
   saveEmployee: (id, input) => invoke('save_employee', { id, input }),
   ledger: customerId => invoke<Ledger>('customer_ledger', { customerId }),
   addCustomer: input => invoke('add_customer', { input }),
+  updateCustomer: (id, input) => invoke('update_customer', { id, input }),
   addSale: input => invoke('add_sale', { input }),
   addReceipt: input => invoke('add_receipt', { input }),
 };
@@ -85,6 +86,17 @@ export function createDemoStore(seed = true): Store {
       const opening = parseScaled(input.opening, 2);
       customers.push({ ...input, code, name, opening: formatScaled(opening), balance: formatScaled(opening), id: crypto.randomUUID() });
     },
+    async updateCustomer(id, input) {
+      const code = input.code.trim(), name = input.name.trim();
+      if (!code || !name) throw new Error('کد و نام مشتری الزامی است.');
+      if (customers.some(c => c.id !== id && c.code.toLowerCase() === code.toLowerCase())) throw new Error('کد مشتری قبلاً ثبت شده است.');
+      const customer = customers.find(c => c.id === id);
+      if (!customer) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
+      const opening = parseScaled(input.opening, 2);
+      const balance = storedCents(customer.balance) - storedCents(customer.opening) + opening;
+      Object.assign(customer, { ...input, code, name, opening: formatScaled(opening), balance: formatScaled(balance) });
+      for (const entry of entries) if (entry.customer_id === id) entry.customer_name = name;
+    },
     async addSale(input) {
       validateDate(input.date);
       if (!input.material.trim()) throw new Error('نوع مواد الزامی است.');
@@ -113,6 +125,7 @@ export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? creat
   saveEmployee: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   ledger: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addCustomer: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  updateCustomer: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addSale: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addReceipt: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
 };

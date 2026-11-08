@@ -12,6 +12,10 @@ async fn add_customer(db: State<'_, Database>, input: CustomerInput) -> Result<(
     service::add_customer(&db.0, input).await
 }
 #[tauri::command]
+async fn update_customer(db: State<'_, Database>, id: String, input: CustomerInput) -> Result<(), String> {
+    service::update_customer(&db.0, id, input).await
+}
+#[tauri::command]
 async fn add_sale(db: State<'_, Database>, input: SaleInput) -> Result<(), String> {
     service::add_sale(&db.0, input).await
 }
@@ -65,7 +69,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }

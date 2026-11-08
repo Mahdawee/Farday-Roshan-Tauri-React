@@ -23,6 +23,21 @@ describe('temporary preview workflow', () => {
     expect(ledger.rows[1].balance).toBe(ledger.rows[2].balance);
     expect(ledger.rows[2].credit).toBe('500.00');
   });
+  it('edits a customer while retaining history and recalculating the ledger', async () => {
+    const s = createDemoStore(false);
+    await s.addCustomer({ code: 'C-1', name: 'اول', phone: '', opening: '100' });
+    await s.addCustomer({ code: 'C-2', name: 'دوم', phone: '', opening: '0' });
+    const id = (await s.snapshot()).customers[0].id;
+    await s.addSale({ customer_id: id, date: '2026-01-01', material: 'ریگ', volume: '1', unit_price: '500', freight: '0', payment_type: 'credit' });
+    await expect(s.updateCustomer(id, { code: 'c-2', name: 'تغییر', phone: '', opening: '200' })).rejects.toThrow();
+    await s.updateCustomer(id, { code: 'C-1', name: 'ویرایش', phone: '0700', opening: '200' });
+    const ledger = await s.ledger(id);
+    expect(ledger.customer_name).toBe('ویرایش');
+    expect(ledger.balance).toBe('700.00');
+    expect(ledger.rows).toHaveLength(1);
+    expect((await s.snapshot()).entries[0].customer_name).toBe('ویرایش');
+    await expect(s.updateCustomer('missing', { code: 'C-3', name: 'سوم', phone: '', opening: '0' })).rejects.toThrow();
+  });
   it('rejects duplicates and invalid dates without changing data', async () => {
     const s = createDemoStore(false);
     const customer = { code: 'C-1', name: 'مشتری', phone: '', opening: '0' };

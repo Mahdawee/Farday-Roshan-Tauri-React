@@ -69,14 +69,26 @@ fn db_error(err: sqlx::Error) -> String {
     "عملیات دیتابیس انجام نشد. لطفاً دوباره تلاش کنید.".into()
 }
 
+fn validate_customer(input: &CustomerInput) -> Result<i64, String> {
+    if input.code.trim().is_empty() || input.name.trim().is_empty() { return Err("کد و نام مشتری الزامی است.".into()); }
+    if input.code.trim().len() > 80 || input.name.trim().len() > 320 || input.phone.trim().len() > 120 { return Err("متن واردشده بیش از حد طولانی است.".into()); }
+    scaled(&input.opening, 2)
+}
+
 pub(crate) async fn add_customer(db: &SqlitePool, input: CustomerInput) -> Result<(), String> {
-    let code = input.code.trim(); let name = input.name.trim();
-    if code.is_empty() || name.is_empty() { return Err("کد و نام مشتری الزامی است.".into()); }
-    if code.len() > 80 || name.len() > 320 || input.phone.len() > 120 { return Err("متن واردشده بیش از حد طولانی است.".into()); }
-    let opening = scaled(&input.opening, 2)?;
+    let opening = validate_customer(&input)?;
     sqlx::query("INSERT INTO customers (id, code, name, phone, opening_cents) VALUES (?, ?, ?, ?, ?)")
-        .bind(Uuid::new_v4().to_string()).bind(code).bind(name).bind(input.phone.trim()).bind(opening)
+        .bind(Uuid::new_v4().to_string()).bind(input.code.trim()).bind(input.name.trim()).bind(input.phone.trim()).bind(opening)
         .execute(db).await.map_err(db_error)?;
+    Ok(())
+}
+
+pub(crate) async fn update_customer(db: &SqlitePool, id: String, input: CustomerInput) -> Result<(), String> {
+    let opening = validate_customer(&input)?;
+    let changed = sqlx::query("UPDATE customers SET code=?,name=?,phone=?,opening_cents=? WHERE id=?")
+        .bind(input.code.trim()).bind(input.name.trim()).bind(input.phone.trim()).bind(opening).bind(id)
+        .execute(db).await.map_err(db_error)?.rows_affected();
+    if changed == 0 { return Err("مشتری انتخاب‌شده وجود ندارد.".into()); }
     Ok(())
 }
 
@@ -278,6 +290,22 @@ mod tests {
         copy.close().await;
         db.close().await;
         std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test]
+    async fn editing_customer_keeps_transactions_and_recalculates_opening_balance() {
+        let path = std::env::temp_dir().join(format!("customer-edit-{}.sqlite3", Uuid::new_v4()));
+        let db = open_database(path.clone()).await.unwrap();
+        add_customer(&db, CustomerInput { code: "C-1".into(), name: "مشتری".into(), phone: "".into(), opening: "100".into() }).await.unwrap();
+        add_customer(&db, CustomerInput { code: "C-2".into(), name: "دوم".into(), phone: "".into(), opening: "0".into() }).await.unwrap();
+        let customer = snapshot(&db).await.unwrap().customers.into_iter().find(|c| c.code == "C-1").unwrap();
+        add_sale(&db, SaleInput { customer_id: customer.id.clone(), date: "2026-01-01".into(), material: "ریگ".into(), volume: "1".into(), unit_price: "500".into(), freight: "0".into(), payment_type: "credit".into() }).await.unwrap();
+        assert!(update_customer(&db, customer.id.clone(), CustomerInput { code: "c-2".into(), name: "نام".into(), phone: "".into(), opening: "200".into() }).await.is_err());
+        update_customer(&db, customer.id.clone(), CustomerInput { code: "C-1".into(), name: "ویرایش".into(), phone: "0700".into(), opening: "200".into() }).await.unwrap();
+        let ledger = customer_ledger(&db, customer.id).await.unwrap();
+        assert_eq!(ledger.customer_name, "ویرایش"); assert_eq!(ledger.balance, "700.00");
+        assert!(update_customer(&db, "missing".into(), CustomerInput { code: "X".into(), name: "نام".into(), phone: "".into(), opening: "0".into() }).await.is_err());
+        db.close().await; std::fs::remove_file(path).unwrap();
     }
 
 }
