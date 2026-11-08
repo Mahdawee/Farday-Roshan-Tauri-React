@@ -415,4 +415,26 @@ mod tests {
         live.close().await; std::fs::remove_dir_all(base).unwrap();
     }
 
+    #[tokio::test]
+    async fn database_upgrades_preserve_v1_and_v2_data() {
+        for version in [1_i64, 2_i64] {
+            let base = std::env::temp_dir().join(format!("farday-upgrade-{}", Uuid::new_v4()));
+            std::fs::create_dir(&base).unwrap();
+            let path = base.join("live.sqlite3");
+            let db = open_database(path.clone()).await.unwrap();
+            sqlx::query("INSERT INTO customers(id,code,name) VALUES ('c','C','مشتری')").execute(&db).await.unwrap();
+            if version == 2 { sqlx::query("INSERT INTO employees(id,code,name) VALUES ('e','E','کارمند')").execute(&db).await.unwrap(); }
+            sqlx::query("DROP TABLE expenses").execute(&db).await.unwrap();
+            if version == 1 { sqlx::query("DROP TABLE employees").execute(&db).await.unwrap(); }
+            sqlx::query("DELETE FROM _sqlx_migrations WHERE version>?").bind(version).execute(&db).await.unwrap();
+            db.close().await;
+            let upgraded = open_database(path).await.unwrap();
+            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM _sqlx_migrations WHERE success=1").fetch_one(&upgraded).await.unwrap(), 3);
+            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM customers WHERE id='c'").fetch_one(&upgraded).await.unwrap(), 1);
+            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM employees").fetch_one(&upgraded).await.unwrap(), if version == 2 { 1 } else { 0 });
+            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM expenses").fetch_one(&upgraded).await.unwrap(), 0);
+            upgraded.close().await; std::fs::remove_dir_all(base).unwrap();
+        }
+    }
+
 }
