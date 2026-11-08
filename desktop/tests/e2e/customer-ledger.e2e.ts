@@ -239,3 +239,20 @@ test('salary filters report only matching payment dates and types', async ({ pag
   await expect(page.getByRole('alert')).toContainText('تاریخ آغاز');
   await expect(page.locator('.expense-summary')).toHaveCount(0);
 });
+
+
+test('attendance registers one employee per date and supports editing', async ({ page }) => {
+  await page.goto('/'); await page.getByRole('button',{name:'حضور و غیاب',exact:true}).click();
+  await page.getByRole('button',{name:'ثبت حضور جدید'}).click(); let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ کار (شمسی)').fill('۱۴۰۴/۰۱/۰۱'); await dialog.getByLabel('ساعت ورود').fill('۰۸:۳۰');
+  await dialog.getByLabel('ساعت خروج').fill('16:30'); await dialog.getByLabel('اضافه‌کاری (ساعت)').fill('1.25');
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  let row=page.getByRole('row').filter({hasText:'احمد احمدی'}); await expect(row).toContainText('1404/01/01'); await expect(row).toContainText('08:30'); await expect(row).toContainText('1.25');
+  await page.getByRole('button',{name:'ثبت حضور جدید'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ کار (شمسی)').fill('۱۴۰۴/۰۱/۰۱'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await expect(dialog.getByRole('alert')).toContainText('قبلاً حضور ثبت'); await dialog.getByRole('button',{name:'انصراف'}).click();
+  await row.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('وضعیت حضور').selectOption('leave'); await dialog.getByLabel('ساعت ورود').fill('');
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(row).toContainText('رخصت');
+  await page.getByLabel('تقویم نمایش').selectOption('miladi'); row=page.getByRole('row').filter({hasText:'احمد احمدی'}); await expect(row).toContainText('2025/03/21');
+});

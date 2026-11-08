@@ -1,8 +1,11 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { Customer, CustomerInput, Employee, Expense, Salary, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store } from './domain';
+import { normalizeDateDigits } from './calendar';
+import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store } from './domain';
 
 const tauriStore: Store = {
   snapshot: () => invoke<Snapshot>('snapshot'),
+  attendance: () => invoke<Attendance[]>('list_attendance'),
+  saveAttendance: (id, input) => invoke('save_attendance', { id, input }),
   salaries: () => invoke<Salary[]>('list_salaries'),
   saveSalary: (id, input) => invoke('save_salary', { id, input }),
   expenses: () => invoke<Expense[]>('list_expenses'),
@@ -24,6 +27,7 @@ export function createDemoStore(seed = true): Store {
     { id: 'demo-3', code: 'CUS-003', name: 'موسسه راه و ساختمان', phone: '0788 321 654', opening: '0.00', balance: '0.00' },
   ];
   const staff: Employee[] = seed ? [{ id: 'demo-staff-1', code: 'EMP-001', name: 'احمد احمدی', father_name: 'کریم', job_title: 'راننده', hire_date: '2025-03-21', base_salary: '15000.00', phone: '0700123456', status: 'active' }] : [];
+  const attendance: Attendance[] = [];
   const salaries: Salary[] = [];
   const expenses: Expense[] = [];
   type DemoEntry = Entry & { customer_id: string; affects_balance: boolean };
@@ -56,6 +60,21 @@ export function createDemoStore(seed = true): Store {
   return {
     async snapshot(): Promise<Snapshot> {
       return structuredClone({ customers, entries, credit_sales: formatScaled(credit), receipts: formatScaled(receipts), total_balance: formatScaled(customers.reduce((a,c) => a + storedCents(c.balance), 0n)) });
+    },
+    async attendance() {
+      return structuredClone(attendance.map(a => { const e=staff.find(employee=>employee.id===a.employee_id); return e ? {...a,employee_name:e.name,employee_code:e.code} : a; }).sort((a,b)=>b.work_date.localeCompare(a.work_date)));
+    },
+    async saveAttendance(id,input) {
+      validateDate(input.work_date);
+      if (!['present','absent','leave','sick','holiday','friday'].includes(input.status)) throw new Error('وضعیت حضور معتبر نیست.');
+      const employee=staff.find(e=>e.id===input.employee_id); if (!employee) throw new Error('کارمند انتخاب‌شده وجود ندارد.');
+      if (attendance.some(a=>a.id!==id && a.employee_id===input.employee_id && a.work_date===input.work_date)) throw new Error('برای این کارمند در این تاریخ قبلاً حضور ثبت شده است؛ رکورد موجود را ویرایش کنید.');
+      const time=(raw: string | null) => { const text=normalizeDateDigits((raw || '').trim()); if (!text) return null; if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(text)) throw new Error('ساعت معتبر به شکل ۲۴ ساعته، مانند 08:30 وارد کنید.'); return text; };
+      const overtime=parseScaled(input.overtime,2); if (overtime>99999n) throw new Error('اضافه‌کاری نباید بیشتر از ۹۹۹٫۹۹ ساعت باشد.');
+      const notes=input.notes.trim(); if (new TextEncoder().encode(notes).length>1020) throw new Error('ملاحظات بیش از حد طولانی است.');
+      const record:Attendance={...input,check_in:time(input.check_in),check_out:time(input.check_out),overtime:formatScaled(overtime),notes,employee_name:employee.name,employee_code:employee.code,id:id || crypto.randomUUID()};
+      if (id) { const index=attendance.findIndex(a=>a.id===id); if (index<0) throw new Error('رکورد حضور انتخاب‌شده وجود ندارد.'); attendance[index]=record; }
+      else attendance.unshift(record);
     },
     async salaries() {
       return structuredClone(salaries.map(s => { const e = staff.find(employee => employee.id === s.employee_id); return e ? { ...s, employee_name:e.name, employee_code:e.code } : s; }).sort((a,b) => b.pay_date.localeCompare(a.pay_date)));
@@ -161,6 +180,8 @@ export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
   snapshot: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  attendance: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  saveAttendance: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   salaries: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   saveSalary: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   expenses: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

@@ -104,3 +104,24 @@ describe('salary records', () => {
     await expect(s.saveSalary('missing',salary)).rejects.toThrow();
   });
 });
+
+
+describe('attendance records', () => {
+  it('validates dates, unique employee days, optional times and overtime', async () => {
+    const s=createDemoStore(false);
+    await s.saveEmployee(null,{code:'E1',name:'کارمند',father_name:'',job_title:'',hire_date:null,base_salary:'0',phone:'',status:'active'});
+    const id=(await s.employees())[0].id;
+    const input={employee_id:id,work_date:'2025-03-21',status:'present' as const,check_in:'۰۸:۳۰',check_out:'16:30',overtime:'۱.۲۵',notes:'شرح'};
+    await s.saveAttendance(null,input);
+    const [saved]=await s.attendance(); expect(saved).toMatchObject({check_in:'08:30',overtime:'1.25'});
+    await expect(s.saveAttendance(null,input)).rejects.toThrow('قبلاً');
+    await s.saveAttendance(saved.id,{...input,status:'leave',check_in:null});
+    expect((await s.attendance())[0]).toMatchObject({id:saved.id,status:'leave',check_in:null});
+    await expect(s.saveAttendance(null,{...input,work_date:'2025-02-29'})).rejects.toThrow();
+    await expect(s.saveAttendance(null,{...input,work_date:'2025-03-22',check_in:'24:00'})).rejects.toThrow();
+    await expect(s.saveAttendance(null,{...input,work_date:'2025-03-22',overtime:'1000'})).rejects.toThrow();
+    await expect(s.saveAttendance(null,{...input,employee_id:'missing'})).rejects.toThrow();
+    await expect(s.saveAttendance('missing', {...input,work_date:'2025-03-22'})).rejects.toThrow();
+    expect(await s.attendance()).toHaveLength(1);
+  });
+});

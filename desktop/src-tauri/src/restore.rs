@@ -1,4 +1,4 @@
-//! Conservative restore for the first four desktop schemas only.
+//! Conservative restore for the first five desktop schemas only.
 //! Source rows are copied as values, never executed as SQL. The target stays in a
 //! single write transaction, and a verified snapshot is made while writes are locked.
 use futures_util::TryStreamExt;
@@ -8,15 +8,15 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use crate::service::create_backup;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const MAX_SCALED: i64 = 1_000_000_000_000;
 const MAX_BACKUP_BYTES: u64 = 1024 * 1024 * 1024;
 const TABLES: [&str; 4] = ["_sqlx_migrations", "customers", "sales", "receipts"];
 
 #[derive(Serialize)]
-pub(crate) struct BackupInfo { schema_version: i64, customers: i64, sales: i64, receipts: i64, employees: i64, expenses: i64, salaries: i64 }
+pub(crate) struct BackupInfo { schema_version: i64, customers: i64, sales: i64, receipts: i64, employees: i64, expenses: i64, salaries: i64, attendance: i64 }
 #[derive(Serialize)]
-pub(crate) struct RestoreResult { safety_backup: String, customers: i64, sales: i64, receipts: i64, employees: i64, expenses: i64, salaries: i64 }
+pub(crate) struct RestoreResult { safety_backup: String, customers: i64, sales: i64, receipts: i64, employees: i64, expenses: i64, salaries: i64, attendance: i64 }
 
 fn error<E: std::fmt::Display>(err: E) -> String {
     eprintln!("Restore error: {err}");
@@ -69,7 +69,7 @@ async fn validate(source: &mut SqliteConnection, target: &mut SqliteConnection) 
             }
         }
     }
-    for table in TABLES.iter().copied().chain(if supplied.len() >= 2 { Some("employees") } else { None }).chain(if supplied.len() >= 3 { Some("expenses") } else { None }).chain(if supplied.len() >= 4 { Some("salaries") } else { None }) {
+    for table in TABLES.iter().copied().chain(if supplied.len() >= 2 { Some("employees") } else { None }).chain(if supplied.len() >= 3 { Some("expenses") } else { None }).chain(if supplied.len() >= 4 { Some("salaries") } else { None }).chain(if supplied.len() >= 5 { Some("attendance") } else { None }) {
         let schema = "SELECT sql FROM sqlite_master WHERE type='table' AND name=?";
         let expected: Option<String> = sqlx::query_scalar(schema).bind(table).fetch_optional(&mut *target).await.map_err(error)?;
         let actual: Option<String> = sqlx::query_scalar(schema).bind(table).fetch_optional(&mut *source).await.map_err(error)?;
@@ -78,7 +78,7 @@ async fn validate(source: &mut SqliteConnection, target: &mut SqliteConnection) 
         }
     }
     // An older backup must not contain later tables that would be silently ignored.
-    for (version, table) in [(2, "employees"), (3, "expenses"), (4, "salaries")] {
+    for (version, table) in [(2, "employees"), (3, "expenses"), (4, "salaries"), (5, "attendance")] {
         if supplied.len() < version {
             let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?").bind(table).fetch_one(&mut *source).await.map_err(error)?;
             if exists != 0 { return Err("نسخه و ساختار فایل پشتیبان هماهنگ نیست.".into()); }
@@ -94,7 +94,8 @@ async fn validate(source: &mut SqliteConnection, target: &mut SqliteConnection) 
     let employees = if supplied.len() >= 2 { sqlx::query_scalar("SELECT COUNT(*) FROM employees").fetch_one(&mut *source).await.map_err(error)? } else { 0 };
     let expenses = if supplied.len() >= 3 { sqlx::query_scalar("SELECT COUNT(*) FROM expenses").fetch_one(&mut *source).await.map_err(error)? } else { 0 };
     let salaries = if supplied.len() >= 4 { sqlx::query_scalar("SELECT COUNT(*) FROM salaries").fetch_one(&mut *source).await.map_err(error)? } else { 0 };
-    Ok(BackupInfo { schema_version: supplied.len() as i64, customers, sales, receipts, employees, expenses, salaries })
+    let attendance = if supplied.len() >= 5 { sqlx::query_scalar("SELECT COUNT(*) FROM attendance").fetch_one(&mut *source).await.map_err(error)? } else { 0 };
+    Ok(BackupInfo { schema_version: supplied.len() as i64, customers, sales, receipts, employees, expenses, salaries, attendance })
 }
 
 pub(crate) async fn inspect(db: &SqlitePool, path: PathBuf) -> Result<BackupInfo, String> {
@@ -132,7 +133,7 @@ pub(crate) async fn restore(db: &SqlitePool, path: PathBuf, safety_dir: PathBuf)
     backup_result.map_err(|_| "نسخهٔ ایمنی ساخته نشد؛ بازگردانی انجام نشد.".to_string())?;
 
     let copy = async {
-        for sql in ["DELETE FROM salaries", "DELETE FROM receipts", "DELETE FROM sales", "DELETE FROM customers", "DELETE FROM employees", "DELETE FROM expenses"] {
+        for sql in ["DELETE FROM attendance", "DELETE FROM salaries", "DELETE FROM receipts", "DELETE FROM sales", "DELETE FROM customers", "DELETE FROM employees", "DELETE FROM expenses"] {
             sqlx::query(sql).execute(&mut *write).await.map_err(error)?;
         }
         let mut rows = sqlx::query("SELECT id,code,name,phone,opening_cents,created_at FROM customers ORDER BY id").fetch(&mut *read);
@@ -264,6 +265,24 @@ pub(crate) async fn restore(db: &SqlitePool, path: PathBuf, safety_dir: PathBuf)
             }
             drop(rows);
         }
+        if info.schema_version >= 5 {
+            let mut rows=sqlx::query("SELECT id,employee_id,work_date,status,check_in,check_out,overtime_hundredths,notes,created_at,updated_at FROM attendance ORDER BY id").fetch(&mut *read);
+            while let Some(r)=rows.try_next().await.map_err(error)? {
+                let date:String=r.try_get(2).map_err(error)?; let status:String=r.try_get(3).map_err(error)?;
+                let check_in:Option<String>=r.try_get(4).map_err(error)?; let check_out:Option<String>=r.try_get(5).map_err(error)?;
+                let overtime:i64=r.try_get(6).map_err(error)?; let notes:String=r.try_get(7).map_err(error)?;
+                if crate::service::valid_date(&date).is_err() || !crate::attendance::valid_status(&status)
+                    || crate::attendance::parse_time(check_in.as_deref()) != Ok(check_in.clone())
+                    || crate::attendance::parse_time(check_out.as_deref()) != Ok(check_out.clone())
+                    || !(0..=99999).contains(&overtime) || notes.len()>1020 {
+                    return Err("معلومات حضور و غیاب در فایل پشتیبان معتبر نیست.".into());
+                }
+                sqlx::query("INSERT INTO attendance(id,employee_id,work_date,status,check_in,check_out,overtime_hundredths,notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
+                    .bind(r.try_get::<String,_>(0).map_err(error)?).bind(r.try_get::<String,_>(1).map_err(error)?).bind(date).bind(status).bind(check_in).bind(check_out).bind(overtime).bind(notes)
+                    .bind(r.try_get::<String,_>(8).map_err(error)?).bind(r.try_get::<String,_>(9).map_err(error)?).execute(&mut *write).await.map_err(error)?;
+            }
+            drop(rows);
+        }
         if !sqlx::query("PRAGMA foreign_key_check").fetch_all(&mut *write).await.map_err(error)?.is_empty() {
             return Err("ارتباطات اطلاعات بازگردانی‌شده معتبر نیست.".to_string());
         }
@@ -279,7 +298,7 @@ pub(crate) async fn restore(db: &SqlitePool, path: PathBuf, safety_dir: PathBuf)
     }
     source.close().await;
     write.commit().await.map_err(|err| format!("{} نسخهٔ ایمنی: {}", error(err), safety_path.display()))?;
-    Ok(RestoreResult { safety_backup: safety_path.to_string_lossy().into_owned(), customers: info.customers, sales: info.sales, receipts: info.receipts, employees: info.employees, expenses: info.expenses, salaries: info.salaries })
+    Ok(RestoreResult { safety_backup: safety_path.to_string_lossy().into_owned(), customers: info.customers, sales: info.sales, receipts: info.receipts, employees: info.employees, expenses: info.expenses, salaries: info.salaries, attendance: info.attendance })
 }
 
 #[cfg(test)]
@@ -300,18 +319,21 @@ mod tests {
         sqlx::query("INSERT INTO employees(id,code,name,base_salary_cents) VALUES ('e1','E1','کارمند',120000)").execute(&live).await.unwrap();
         sqlx::query("INSERT INTO expenses(id,expense_date,description,amount_afn_cents,amount_usd_cents,payment_method) VALUES ('x1','2026-01-01','تیل',100,200,'cash')").execute(&live).await.unwrap();
         sqlx::query("INSERT INTO salaries(id,employee_id,period_calendar,period_year,period_month,pay_date,base_cents,bonus_cents,fine_cents,overtime_cents,total_cents,payment_type) VALUES ('p1','e1','shamsi',1404,1,'2026-01-01',100,10,5,0,105,'cash')").execute(&live).await.unwrap();
+        sqlx::query("INSERT INTO attendance(id,employee_id,work_date,status,check_in,overtime_hundredths) VALUES('a1','e1','2026-01-01','present','08:00',125)").execute(&live).await.unwrap();
         create_backup(&live, saved.clone()).await.unwrap();
+        sqlx::query("DELETE FROM attendance").execute(&live).await.unwrap();
         sqlx::query("DELETE FROM salaries").execute(&live).await.unwrap();
         sqlx::query("DELETE FROM expenses").execute(&live).await.unwrap();
         sqlx::query("DELETE FROM employees").execute(&live).await.unwrap();
         sqlx::query("INSERT INTO customers(id,code,name) VALUES ('c2','C2','دوم')").execute(&live).await.unwrap();
         let preview = inspect(&live, saved.clone()).await.unwrap();
-        assert_eq!((preview.customers, preview.sales, preview.receipts, preview.employees, preview.expenses, preview.salaries, preview.schema_version), (1, 1, 1, 1, 1, 1, 4));
+        assert_eq!((preview.customers, preview.sales, preview.receipts, preview.employees, preview.expenses, preview.salaries, preview.attendance, preview.schema_version), (1, 1, 1, 1, 1, 1, 1, 5));
         let result = restore(&live, saved.clone(), base.join("safety")).await.unwrap();
-        assert_eq!((result.customers, result.sales, result.receipts, result.employees, result.expenses, result.salaries), (1, 1, 1, 1, 1, 1));
+        assert_eq!((result.customers, result.sales, result.receipts, result.employees, result.expenses, result.salaries, result.attendance), (1, 1, 1, 1, 1, 1, 1));
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM employees").fetch_one(&live).await.unwrap(), 1);
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT amount_usd_cents FROM expenses").fetch_one(&live).await.unwrap(), 200);
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT total_cents FROM salaries").fetch_one(&live).await.unwrap(), 105);
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT overtime_hundredths FROM attendance").fetch_one(&live).await.unwrap(), 125);
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM customers").fetch_one(&live).await.unwrap();
         assert_eq!(count, 1);
         let safety = open_source(Path::new(&result.safety_backup)).await.unwrap();
@@ -391,6 +413,7 @@ mod tests {
         let saved = base.join("v1.sqlite3");
         create_backup(&live, saved.clone()).await.unwrap();
         let source = SqlitePoolOptions::new().connect_with(SqliteConnectOptions::new().filename(&saved).foreign_keys(true)).await.unwrap();
+        sqlx::query("DROP TABLE attendance").execute(&source).await.unwrap();
         sqlx::query("DROP TABLE salaries").execute(&source).await.unwrap();
         sqlx::query("DROP TABLE expenses").execute(&source).await.unwrap();
         sqlx::query("DROP TABLE employees").execute(&source).await.unwrap();
@@ -415,6 +438,7 @@ mod tests {
         sqlx::query("INSERT INTO employees(id,code,name) VALUES ('e','E','کارمند')").execute(&live).await.unwrap();
         let saved = base.join("v2.sqlite3"); create_backup(&live, saved.clone()).await.unwrap();
         let source = SqlitePoolOptions::new().connect_with(SqliteConnectOptions::new().filename(&saved).foreign_keys(true)).await.unwrap();
+        sqlx::query("DROP TABLE attendance").execute(&source).await.unwrap();
         sqlx::query("DROP TABLE salaries").execute(&source).await.unwrap();
         sqlx::query("DROP TABLE expenses").execute(&source).await.unwrap();
         sqlx::query("DELETE FROM _sqlx_migrations WHERE version>=3").execute(&source).await.unwrap();
@@ -446,8 +470,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn database_upgrades_preserve_v1_and_v2_data() {
-        for version in [1_i64, 2_i64, 3_i64] {
+    async fn database_upgrades_preserve_old_data() {
+        for version in [1_i64, 2_i64, 3_i64, 4_i64] {
             let base = std::env::temp_dir().join(format!("farday-upgrade-{}", Uuid::new_v4()));
             std::fs::create_dir(&base).unwrap();
             let path = base.join("live.sqlite3");
@@ -455,17 +479,20 @@ mod tests {
             sqlx::query("INSERT INTO customers(id,code,name) VALUES ('c','C','مشتری')").execute(&db).await.unwrap();
             if version >= 2 { sqlx::query("INSERT INTO employees(id,code,name) VALUES ('e','E','کارمند')").execute(&db).await.unwrap(); }
             if version >= 3 { sqlx::query("INSERT INTO expenses(id,expense_date,description,amount_afn_cents,payment_method) VALUES ('x','2026-01-01','مصرف',100,'cash')").execute(&db).await.unwrap(); }
-            sqlx::query("DROP TABLE salaries").execute(&db).await.unwrap();
+            if version >= 4 { sqlx::query("INSERT INTO salaries(id,employee_id,period_calendar,period_year,period_month,pay_date,base_cents,bonus_cents,fine_cents,overtime_cents,total_cents,payment_type) VALUES('s','e','miladi',2026,1,'2026-01-01',100,0,0,0,100,'cash')").execute(&db).await.unwrap(); }
+            sqlx::query("DROP TABLE attendance").execute(&db).await.unwrap();
+            if version < 4 { sqlx::query("DROP TABLE salaries").execute(&db).await.unwrap(); }
             if version < 3 { sqlx::query("DROP TABLE expenses").execute(&db).await.unwrap(); }
             if version == 1 { sqlx::query("DROP TABLE employees").execute(&db).await.unwrap(); }
             sqlx::query("DELETE FROM _sqlx_migrations WHERE version>?").bind(version).execute(&db).await.unwrap();
             db.close().await;
             let upgraded = open_database(path).await.unwrap();
-            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM _sqlx_migrations WHERE success=1").fetch_one(&upgraded).await.unwrap(), 4);
+            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM _sqlx_migrations WHERE success=1").fetch_one(&upgraded).await.unwrap(), 5);
             assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM customers WHERE id='c'").fetch_one(&upgraded).await.unwrap(), 1);
             assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM employees").fetch_one(&upgraded).await.unwrap(), if version >= 2 { 1 } else { 0 });
             assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM expenses").fetch_one(&upgraded).await.unwrap(), if version >= 3 { 1 } else { 0 });
-            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM salaries").fetch_one(&upgraded).await.unwrap(), 0);
+            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM salaries").fetch_one(&upgraded).await.unwrap(), if version >= 4 { 1 } else { 0 });
+            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM attendance").fetch_one(&upgraded).await.unwrap(), 0);
             upgraded.close().await; std::fs::remove_dir_all(base).unwrap();
         }
     }
@@ -477,7 +504,8 @@ mod tests {
         sqlx::query("INSERT INTO employees(id,code,name) VALUES ('e','E','کارمند')").execute(&live).await.unwrap();
         let saved=base.join("v3.sqlite3"); create_backup(&live,saved.clone()).await.unwrap();
         let source=SqlitePoolOptions::new().connect_with(SqliteConnectOptions::new().filename(&saved)).await.unwrap();
-        sqlx::query("DROP TABLE salaries").execute(&source).await.unwrap(); sqlx::query("DELETE FROM _sqlx_migrations WHERE version=4").execute(&source).await.unwrap(); source.close().await;
+        sqlx::query("DROP TABLE attendance").execute(&source).await.unwrap();
+        sqlx::query("DROP TABLE salaries").execute(&source).await.unwrap(); sqlx::query("DELETE FROM _sqlx_migrations WHERE version>=4").execute(&source).await.unwrap(); source.close().await;
         sqlx::query("INSERT INTO salaries(id,employee_id,period_calendar,period_year,period_month,pay_date,base_cents,bonus_cents,fine_cents,overtime_cents,total_cents,payment_type) VALUES('s','e','miladi',2026,1,'2026-01-01',100,0,0,0,100,'cash')").execute(&live).await.unwrap();
         let info=inspect(&live,saved.clone()).await.unwrap(); assert_eq!((info.schema_version, info.salaries), (3,0));
         let result=restore(&live,saved,base.join("safety")).await.unwrap(); assert_eq!(result.salaries,0);
@@ -499,6 +527,37 @@ mod tests {
         sqlx::query("UPDATE salaries SET notes='فعلی'").execute(&live).await.unwrap();
         assert!(restore(&live,saved,base.join("safety")).await.is_err());
         assert_eq!(sqlx::query_scalar::<_, String>("SELECT notes FROM salaries").fetch_one(&live).await.unwrap(), "فعلی");
+        assert_eq!(std::fs::read_dir(base.join("safety")).unwrap().count(),1);
+        live.close().await; std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[tokio::test]
+    async fn restores_v4_clearing_attendance_with_safety_backup() {
+        let base=std::env::temp_dir().join(format!("farday-v4-test-{}",Uuid::new_v4())); std::fs::create_dir(&base).unwrap();
+        let live=open_database(base.join("live.sqlite3")).await.unwrap(); sqlx::query("INSERT INTO employees(id,code,name) VALUES('e','E','کارمند')").execute(&live).await.unwrap();
+        let saved=base.join("v4.sqlite3"); create_backup(&live,saved.clone()).await.unwrap();
+        let source=SqlitePoolOptions::new().connect_with(SqliteConnectOptions::new().filename(&saved)).await.unwrap();
+        sqlx::query("DROP TABLE attendance").execute(&source).await.unwrap(); sqlx::query("DELETE FROM _sqlx_migrations WHERE version=5").execute(&source).await.unwrap(); source.close().await;
+        sqlx::query("INSERT INTO attendance(id,employee_id,work_date,status) VALUES('a','e','2026-01-01','present')").execute(&live).await.unwrap();
+        let info=inspect(&live,saved.clone()).await.unwrap(); assert_eq!((info.schema_version,info.attendance),(4,0));
+        let result=restore(&live,saved,base.join("safety")).await.unwrap(); assert_eq!(result.attendance,0);
+        let safety=open_source(Path::new(&result.safety_backup)).await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM attendance").fetch_one(&safety).await.unwrap(),1);
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM attendance").fetch_one(&live).await.unwrap(),0);
+        safety.close().await; live.close().await; std::fs::remove_dir_all(base).unwrap();
+    }
+    #[tokio::test]
+    async fn invalid_attendance_time_rolls_back_with_safety_backup() {
+        let base=std::env::temp_dir().join(format!("farday-attendance-invalid-{}",Uuid::new_v4())); std::fs::create_dir(&base).unwrap();
+        let live=open_database(base.join("live.sqlite3")).await.unwrap();
+        sqlx::query("INSERT INTO employees(id,code,name) VALUES('e','E','کارمند')").execute(&live).await.unwrap();
+        sqlx::query("INSERT INTO attendance(id,employee_id,work_date,status,check_in) VALUES('a','e','2026-01-01','present','08:00')").execute(&live).await.unwrap();
+        let saved=base.join("backup.sqlite3"); create_backup(&live,saved.clone()).await.unwrap();
+        let source=SqlitePoolOptions::new().connect_with(SqliteConnectOptions::new().filename(&saved)).await.unwrap();
+        sqlx::query("UPDATE attendance SET check_in='25:00'").execute(&source).await.unwrap(); source.close().await;
+        sqlx::query("UPDATE attendance SET notes='فعلی'").execute(&live).await.unwrap();
+        assert!(restore(&live,saved,base.join("safety")).await.is_err());
+        assert_eq!(sqlx::query_scalar::<_,String>("SELECT notes FROM attendance").fetch_one(&live).await.unwrap(),"فعلی");
         assert_eq!(std::fs::read_dir(base.join("safety")).unwrap().count(),1);
         live.close().await; std::fs::remove_dir_all(base).unwrap();
     }

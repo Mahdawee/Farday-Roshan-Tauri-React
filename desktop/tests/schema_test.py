@@ -99,4 +99,13 @@ class SchemaTest(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError): self.db.execute(query,args)
         with self.assertRaises(sqlite3.IntegrityError): self.db.execute("DELETE FROM employees WHERE id='e'")
 
+    def test_attendance_migration_enforces_unique_day_employee_and_values(self):
+        self.db.executescript((SCHEMA.parent / '0002_employees.sql').read_text())
+        self.db.executescript((SCHEMA.parent / '0005_attendance.sql').read_text())
+        self.db.execute("INSERT INTO employees(id,code,name) VALUES ('e','E','کارمند')")
+        self.db.execute("INSERT INTO attendance(id,employee_id,work_date,status,overtime_hundredths) VALUES ('a','e','2025-03-21','present',125)")
+        for args in [('a2','e','2025-03-21','absent',0),('a2','missing','2025-03-22','present',0),('a2','e','2025-03-22','invalid',0),('a2','e','2025-03-22','present',-1),('a2','e','2025-03-22','present',100000)]:
+            with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO attendance(id,employee_id,work_date,status,overtime_hundredths) VALUES (?,?,?,?,?)",args)
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("DELETE FROM employees WHERE id='e'")
+
 if __name__ == '__main__': unittest.main()

@@ -1,3 +1,6 @@
+export type AttendanceStatus = 'present' | 'absent' | 'leave' | 'sick' | 'holiday' | 'friday';
+export interface AttendanceInput { employee_id: string; work_date: string; status: AttendanceStatus; check_in: string | null; check_out: string | null; overtime: string; notes: string }
+export interface Attendance extends AttendanceInput { id: string; employee_name: string; employee_code: string }
 export interface SalaryInput { employee_id: string; period_calendar: 'shamsi' | 'miladi'; period_year: number; period_month: number; pay_date: string; base: string; bonus: string; fine: string; overtime: string; payer: string; payment_type: 'cash' | 'transfer'; notes: string }
 export interface Salary extends SalaryInput { id: string; employee_name: string; employee_code: string; total: string }
 export interface ExpenseInput { date: string; description: string; expense_type: string; purchase_bill_no: string; shop_name: string; amount_afn: string; amount_usd: string; payer: string; payment_method: 'cash' | 'credit'; notes: string }
@@ -13,7 +16,7 @@ export interface Entry { id: string; kind: 'sale' | 'receipt'; date: string; cus
 export interface Snapshot { customers: Customer[]; entries: Entry[]; credit_sales: string; receipts: string; total_balance: string }
 export interface LedgerRow { id: string; date: string; kind: 'sale' | 'receipt'; detail: string; debit: string; credit: string; affects_balance: boolean; balance: string }
 export interface Ledger { customer_name: string; customer_code: string; opening: string; balance: string; rows: LedgerRow[] }
-export interface Store { snapshot(): Promise<Snapshot>; salaries(): Promise<Salary[]>; saveSalary(id: string | null, input: SalaryInput): Promise<void>; expenses(): Promise<Expense[]>; saveExpense(id: string | null, input: ExpenseInput): Promise<void>; employees(): Promise<Employee[]>; saveEmployee(id: string | null, input: EmployeeInput): Promise<void>; ledger(customerId: string): Promise<Ledger>; addCustomer(input: CustomerInput): Promise<void>; updateCustomer(id: string, input: CustomerInput): Promise<void>; addSale(input: SaleInput): Promise<void>; addReceipt(input: ReceiptInput): Promise<void> }
+export interface Store { snapshot(): Promise<Snapshot>; attendance(): Promise<Attendance[]>; saveAttendance(id: string | null, input: AttendanceInput): Promise<void>; salaries(): Promise<Salary[]>; saveSalary(id: string | null, input: SalaryInput): Promise<void>; expenses(): Promise<Expense[]>; saveExpense(id: string | null, input: ExpenseInput): Promise<void>; employees(): Promise<Employee[]>; saveEmployee(id: string | null, input: EmployeeInput): Promise<void>; ledger(customerId: string): Promise<Ledger>; addCustomer(input: CustomerInput): Promise<void>; updateCustomer(id: string, input: CustomerInput): Promise<void>; addSale(input: SaleInput): Promise<void>; addReceipt(input: ReceiptInput): Promise<void> }
 
 const MAX = 1000000000000n; // 10 billion AFN per field, bounded to make aggregate overflow remote.
 export function parseScaled(raw: string, decimals: number): bigint {
