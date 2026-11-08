@@ -256,3 +256,19 @@ test('attendance registers one employee per date and supports editing', async ({
   await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(row).toContainText('رخصت');
   await page.getByLabel('تقویم نمایش').selectOption('miladi'); row=page.getByRole('row').filter({hasText:'احمد احمدی'}); await expect(row).toContainText('2025/03/21');
 });
+
+test('attendance summary counts only matching recorded days and exact overtime', async ({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'حضور و غیاب',exact:true}).click();
+  for (const [date,status,overtime] of [['۱۴۰۴/۰۱/۰۱','present','1.25'],['۱۴۰۴/۰۱/۰۲','absent','0.50']]) {
+    await page.getByRole('button',{name:'ثبت حضور جدید'}).click(); const dialog=page.getByRole('dialog');
+    await dialog.getByLabel('تاریخ کار (شمسی)').fill(date); await dialog.getByLabel('وضعیت حضور').selectOption(status);
+    await dialog.getByLabel('اضافه‌کاری (ساعت)').fill(overtime); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  }
+  await expect(page.locator('.expense-summary')).toContainText('1.75');
+  await page.getByLabel('فیلتر وضعیت حضور').selectOption('absent');
+  await expect(page.locator('.expense-summary')).toContainText('0.50');
+  await expect(page.getByRole('row').filter({hasText:'احمد احمدی'})).toHaveCount(1);
+  await page.getByLabel('از تاریخ کار (شمسی)').fill('۱۴۰۴/۰۱/۰۳');
+  await page.getByLabel('تا تاریخ کار (شمسی)').fill('۱۴۰۴/۰۱/۰۱');
+  await expect(page.getByRole('alert')).toContainText('تاریخ آغاز'); await expect(page.locator('.expense-summary')).toHaveCount(0);
+});
