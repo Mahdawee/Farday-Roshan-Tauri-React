@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { ArrowDownLeft, ArrowLeft, ArrowUpLeft, Archive, Box, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock3, FileBarChart, LayoutDashboard, Menu, Package, Plus, ReceiptText, Search, Settings, ShieldCheck, ShoppingCart, Users, Wallet, X } from 'lucide-react';
 import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, TransactionPage, TransactionDetail, RangeSummary, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
 import { inDesktop, store } from './store';
-import { BackupInfo, chooseBackup, createBackup, restoreBackup } from './backup';
+import { BackupInfo, chooseBackup, createBackup, restoreBackup, exportRangeCsv } from './backup';
 import { attendanceLabels, summarizeAttendance, monthlyAttendance } from './attendance';
 import { summarizeSalaries } from './salaries';
 import { summarizeExpenses } from './expenses';
@@ -139,9 +139,9 @@ function TransactionDetailModal({ kind, id, calendar, close, onEdit }: {kind:'sa
 function FinancialReport({calendar}:{calendar:Calendar}) {
   const today=displayCalendarDate(todayKabul(),calendar);
   const [from,setFrom]=useState(today); const [to,setTo]=useState(today);
-  const [result,setResult]=useState<{data:RangeSummary;from:string;to:string}|null>(null); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
+  const [result,setResult]=useState<{data:RangeSummary;from:string;to:string}|null>(null); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const [message,setMessage]=useState('');
   const submit=async(e:React.FormEvent)=>{
-    e.preventDefault(); setError(''); setResult(null);
+    e.preventDefault(); setError(''); setMessage(''); setResult(null);
     const start=parseCalendarDate(from,calendar), end=parseCalendarDate(to,calendar);
     if (!start || !end) {setError('تاریخ آغاز و پایان معتبر وارد کنید.'); return;}
     if (start>end) {setError('تاریخ آغاز نباید پس از تاریخ پایان باشد.'); return;}
@@ -149,9 +149,14 @@ function FinancialReport({calendar}:{calendar:Calendar}) {
     try { const data=await store.rangeSummary(start,end); setResult({data,from:start,to:end}); }
     catch(e) {setError(String(e));} finally {setBusy(false);}
   };
+  const exportCsv=async()=>{
+    if (!result) return; setBusy(true); setError(''); setMessage('');
+    try { if (await exportRangeCsv(result.from,result.to,result.data)) setMessage('فایل CSV ساخته شد.'); }
+    catch(e) {setError(String(e));} finally {setBusy(false);}
+  };
   return <section className="panel listing"><div className="panel-head"><div><h2>راپور مالی بازه‌ای آزمایشی</h2><p>جمع همهٔ رکوردهای ذخیره‌شده در بازهٔ انتخابی، شامل روز آغاز و پایان.</p></div></div>
     <form onSubmit={submit}><div className="expense-filters"><Field label={`از تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`} required><input required disabled={busy} dir="ltr" value={from} onChange={e=>{setFrom(e.target.value);setResult(null);}}/></Field><Field label={`تا تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`} required><input required disabled={busy} dir="ltr" value={to} onChange={e=>{setTo(e.target.value);setResult(null);}}/></Field></div><div className="expense-feedback"><button className="btn primary" disabled={busy} type="submit">{busy?'در حال محاسبه...':'محاسبهٔ راپور'}</button></div></form>
-    {error && <div className="error expense-feedback" role="alert">{error}</div>}
+    {error && <div className="error expense-feedback" role="alert">{error}</div>}{message && <div className="notice expense-feedback" role="status">{message}</div>}
     {result && <><div className="form-hint">نتیجه از {displayCalendarDate(result.from,calendar)} تا {displayCalendarDate(result.to,calendar)}؛ برای دریافت اطلاعات تازه دوباره محاسبه کنید.</div>
       <div className="table-wrap"><table><thead><tr><th>شاخص</th><th>جمع</th></tr></thead><tbody>
         {([
@@ -160,8 +165,8 @@ function FinancialReport({calendar}:{calendar:Calendar}) {
           ['تعداد مصارف',String(result.data.expenses_count),'رکورد'],['مصارف افغانی',displayMoney(result.data.expenses_afn),'افغانی'],['مصارف دالری',displayMoney(result.data.expenses_usd),'دالر'],
           ['تعداد معاشات',String(result.data.salaries_count),'رکورد'],['معاشات',displayMoney(result.data.salaries_afn),'افغانی'],
         ] as [string,string,string][]).map(([label,value,unit])=><tr key={label}><th>{label}</th><td><b dir="ltr">{value}</b> <span className="unit">{unit}</span></td></tr>)}
-      </tbody></table></div></>}
-    <div className="form-hint">رسید امانت از بدهی کم نمی‌شود؛ باقی رسیدها در جمع مؤثر بر بدهی آمده‌اند. مصارف نقده و باقی هر دو شامل‌اند؛ معاش بر اساس تاریخ پرداخت است و ممکن است منفی باشد. ارزها تبدیل یا جمع نمی‌شوند. این ارقام موجودی دخل، سود یا زیان نیستند؛ قواعد و داده‌ها باید با حسابدار تطبیق شوند. چاپ، خروجی و سایر راپورهای قدیمی هنوز آماده نیست.</div>
+      </tbody></table></div><div className="expense-feedback"><button type="button" className="btn secondary" disabled={!inDesktop || busy} onClick={exportCsv}>خروجی CSV</button> <span className="form-hint">{inDesktop ? 'فایل باید جدید باشد؛ اگر جمع‌ها تغییر کرده‌اند، ابتدا راپور را دوباره محاسبه کنید.' : 'خروجی فایل در پیش‌نمایش مرورگر فعال نیست.'}</span></div></>}
+    <div className="form-hint">رسید امانت از بدهی کم نمی‌شود؛ باقی رسیدها در جمع مؤثر بر بدهی آمده‌اند. مصارف نقده و باقی هر دو شامل‌اند؛ معاش بر اساس تاریخ پرداخت است و ممکن است منفی باشد. ارزها تبدیل یا جمع نمی‌شوند. این ارقام موجودی دخل، سود یا زیان نیستند؛ قواعد و داده‌ها باید با حسابدار تطبیق شوند. چاپ و سایر راپورهای قدیمی هنوز آماده نیست.</div>
   </section>;
 }
 

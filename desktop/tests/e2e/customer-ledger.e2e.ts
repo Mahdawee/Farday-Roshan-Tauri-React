@@ -392,7 +392,7 @@ test('financial report uses the requested inclusive dates and keeps currencies a
   await page.getByRole('button',{name:'راپور مالی بازه‌ای',exact:true}).click();
   await page.getByLabel('از تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۱'); await page.getByLabel('تا تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۲'); await page.getByRole('button',{name:'محاسبهٔ راپور'}).click();
   for(const [label,value] of [['فروش باقی','125'],['متراژ فروش','1.250'],['رسید امانت','30'],['رسیدهای مؤثر بر بدهی','0'],['مصارف افغانی','12.50'],['مصارف دالری','5.25']]) await expect(page.getByRole('row').filter({hasText:label})).toContainText(value);
-  await expect(page.getByText('این ارقام موجودی دخل', {exact:false})).toBeVisible();
+  await expect(page.getByText('این ارقام موجودی دخل', {exact:false})).toBeVisible(); await expect(page.getByRole('button',{name:'خروجی CSV'})).toBeDisabled(); await expect(page.getByText('خروجی فایل در پیش‌نمایش مرورگر فعال نیست.')).toBeVisible();
   await page.getByLabel('تا تاریخ (شمسی)').fill('1403/12/29'); await expect(page.getByRole('row').filter({hasText:'فروش باقی'})).toHaveCount(0); await page.getByRole('button',{name:'محاسبهٔ راپور'}).click(); await expect(page.getByRole('alert')).toContainText('تاریخ آغاز');
   await page.getByLabel('تقویم نمایش').selectOption('miladi'); await page.getByLabel('از تاریخ (میلادی)').fill('2025/03/21'); await page.getByLabel('تا تاریخ (میلادی)').fill('2025/03/21'); await page.getByRole('button',{name:'محاسبهٔ راپور'}).click(); await expect(page.getByRole('row').filter({hasText:'رسید امانت'})).toContainText('0');
 });

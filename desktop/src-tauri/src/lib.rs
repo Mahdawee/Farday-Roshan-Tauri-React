@@ -94,6 +94,9 @@ async fn transaction_detail(db: State<'_, Database>, kind: String, id: String) -
 #[tauri::command]
 async fn range_summary(db: State<'_, Database>, from: String, to: String) -> Result<reports::RangeSummary, String> { reports::range_summary(&db.0, from, to).await }
 
+#[tauri::command]
+async fn export_range_csv(db: State<'_, Database>, from: String, to: String, expected: reports::RangeSummary, path: String) -> Result<(), String> { reports::export_csv(&db.0, from, to, expected, std::path::Path::new(&path)).await }
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -105,7 +108,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail, range_summary])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail, range_summary, export_range_csv])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }

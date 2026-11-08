@@ -1,5 +1,7 @@
 //! Experimental interval totals. These are not a cash balance or a profit calculation.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::path::Path;
 use sqlx::{Row, SqlitePool};
 use crate::service::{money, valid_date};
 
@@ -22,7 +24,7 @@ const SUMMARY_SQL: &str = "SELECT * FROM
  (SELECT COUNT(*) AS salaries_count, COALESCE(SUM(total_cents),0) AS salaries_afn
   FROM salaries WHERE pay_date BETWEEN ?1 AND ?2)";
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub(crate) struct RangeSummary {
     sales_count:i64, sales_cash:String, sales_credit:String, volume:String,
     receipts_count:i64, receipts_effective:String, receipts_deposit:String,
@@ -43,9 +45,46 @@ pub(crate) async fn range_summary(db:&SqlitePool, from:String, to:String)->Resul
     })
 }
 
+/// Export the exact result the user viewed, or reject it if underlying totals changed.
+pub(crate) async fn export_csv(db:&SqlitePool, from:String, to:String, expected:RangeSummary, path:&Path)->Result<(),String> {
+    if !path.is_absolute() || path.extension().and_then(|s|s.to_str()).map(|s|s.to_ascii_lowercase()).as_deref()!=Some("csv") {
+        return Err("مسیر مطلق با پسوند csv انتخاب کنید.".into());
+    }
+    let actual=range_summary(db,from.clone(),to.clone()).await?;
+    if actual!=expected { return Err("جمع‌های راپور تغییر کرده‌اند؛ ابتدا دوباره محاسبه کنید.".into()); }
+    // Every text cell below is a fixed label or a validated ISO date; values are formatted integers.
+    let content=format!("\u{feff}شاخص,مقدار,واحد\r\nاز تاریخ,{from},میلادی\r\nتا تاریخ,{to},میلادی\r\nتعداد فروش,{},رکورد\r\nفروش نقده,{},افغانی\r\nفروش باقی,{},افغانی\r\nمتراژ فروش,{},متر مکعب\r\nتعداد رسید,{},رکورد\r\nرسیدهای مؤثر بر بدهی,{},افغانی\r\nرسید امانت,{},افغانی\r\nتعداد مصارف,{},رکورد\r\nمصارف افغانی,{},افغانی\r\nمصارف دالری,{},دالر\r\nتعداد معاشات,{},رکورد\r\nمعاشات,{},افغانی\r\n", actual.sales_count, actual.sales_cash, actual.sales_credit, actual.volume, actual.receipts_count, actual.receipts_effective, actual.receipts_deposit, actual.expenses_count, actual.expenses_afn, actual.expenses_usd, actual.salaries_count, actual.salaries_afn);
+    // create_new prevents replacing existing reports or following an existing symlink.
+    let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+        .map_err(|_| "فایل ساخته نشد؛ مسیر را بررسی کنید و نام فایل جدید انتخاب کنید.".to_string())?;
+    if let Err(err)=file.write_all(content.as_bytes()).and_then(|_|file.sync_all()) {
+        eprintln!("Report export error: {err}");
+        return Err("نوشتن فایل راپور ناموفق بود؛ فایل ناقص احتمالی را بررسی و حذف کنید.".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*; use crate::service::open_database; use uuid::Uuid;
+    #[tokio::test]
+    async fn export_never_overwrites_or_exports_a_stale_summary() {
+        let base=std::env::temp_dir(); let path=base.join(format!("export-test-{}.sqlite3",Uuid::new_v4())); let target=base.join(format!("report-{}.csv",Uuid::new_v4()));
+        let db=open_database(path.clone()).await.unwrap(); let from="2025-03-21".to_string(); let to="2025-03-22".to_string();
+        let expected=range_summary(&db,from.clone(),to.clone()).await.unwrap();
+        assert!(export_csv(&db,from.clone(),to.clone(),expected,Path::new("relative.csv")).await.is_err());
+        let expected=range_summary(&db,from.clone(),to.clone()).await.unwrap();
+        assert!(export_csv(&db,from.clone(),to.clone(),expected,&target.with_extension("txt")).await.is_err());
+        let expected=range_summary(&db,from.clone(),to.clone()).await.unwrap();
+        sqlx::query("INSERT INTO expenses(id,expense_date,description,amount_afn_cents,amount_usd_cents,payment_method) VALUES('x','2025-03-21','x',125,525,'credit')").execute(&db).await.unwrap();
+        assert!(export_csv(&db,from.clone(),to.clone(),expected,&target).await.is_err()); assert!(!target.exists());
+        let expected=range_summary(&db,from.clone(),to.clone()).await.unwrap();
+        export_csv(&db,from.clone(),to.clone(),expected,&target).await.unwrap();
+        let bytes=std::fs::read(&target).unwrap(); assert!(bytes.starts_with(&[0xef,0xbb,0xbf]));
+        let text=String::from_utf8(bytes.clone()).unwrap(); assert!(text.contains("مصارف افغانی,1.25,افغانی")); assert!(text.contains("مصارف دالری,5.25,دالر"));
+        let expected=range_summary(&db,from.clone(),to.clone()).await.unwrap(); assert!(export_csv(&db,from,to,expected,&target).await.is_err()); assert_eq!(std::fs::read(&target).unwrap(),bytes);
+        db.close().await; std::fs::remove_file(path).unwrap(); std::fs::remove_file(target).unwrap();
+    }
     #[tokio::test]
     async fn range_uses_all_sources_and_inclusive_dates() {
         let path=std::env::temp_dir().join(format!("report-{}.sqlite3",Uuid::new_v4())); let db=open_database(path.clone()).await.unwrap();

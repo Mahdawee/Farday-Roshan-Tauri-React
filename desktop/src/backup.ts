@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { inDesktop } from './store';
+import { RangeSummary } from './domain';
 
 /** Returns false when the user cancels; never simulates a backup in the browser. */
 export async function createBackup(): Promise<boolean> {
@@ -26,4 +27,13 @@ export async function chooseBackup(): Promise<{ path: string; info: BackupInfo }
 export async function restoreBackup(path: string): Promise<RestoreResult> {
   if (!inDesktop) throw new Error('بازگردانی فقط در نسخهٔ دسکتاپ قابل استفاده است.');
   return invoke<RestoreResult>('restore_backup', { path });
+}
+
+/** Export the displayed report only; stale totals are rejected by the Rust service. */
+export async function exportRangeCsv(from:string,to:string,expected:RangeSummary):Promise<boolean> {
+  if (!inDesktop) throw new Error('خروجی فایل فقط در نسخهٔ دسکتاپ قابل استفاده است.');
+  const path=await save({title:'محل ذخیرهٔ راپور CSV', defaultPath:`financial-report-${from}-${to}.csv`, filters:[{name:'CSV',extensions:['csv']}]});
+  if (!path) return false;
+  await invoke('export_range_csv',{from,to,expected,path});
+  return true;
 }
