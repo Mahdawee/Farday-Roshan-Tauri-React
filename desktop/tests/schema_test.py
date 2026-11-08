@@ -89,4 +89,14 @@ class SchemaTest(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError):
                 self.db.execute("INSERT INTO expenses(id,expense_date,description,amount_afn_cents,amount_usd_cents,payment_method) VALUES ('bad','2026-01-01','x',?,?,?)", (afn,usd,method))
 
+    def test_salary_migration_enforces_foreign_keys_period_and_exact_total(self):
+        self.db.executescript((SCHEMA.parent / '0002_employees.sql').read_text())
+        self.db.executescript((SCHEMA.parent / '0004_salaries.sql').read_text())
+        self.db.execute("INSERT INTO employees(id,code,name) VALUES ('e','E','کارمند')")
+        query = "INSERT INTO salaries(id,employee_id,period_calendar,period_year,period_month,pay_date,base_cents,bonus_cents,fine_cents,overtime_cents,total_cents,payment_type) VALUES (?,?,?,?,?,'2025-03-21',10050,1025,500,100,?,?)"
+        self.db.execute(query, ('s','e','shamsi',1404,1,10675,'cash'))
+        for args in [('bad','missing','shamsi',1404,1,10675,'cash'),('bad','e','shamsi',3178,1,10675,'cash'),('bad','e','miladi',2025,13,10675,'cash'),('bad','e','miladi',2025,1,0,'cash'),('bad','e','miladi',2025,1,10675,'invalid')]:
+            with self.assertRaises(sqlite3.IntegrityError): self.db.execute(query,args)
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("DELETE FROM employees WHERE id='e'")
+
 if __name__ == '__main__': unittest.main()

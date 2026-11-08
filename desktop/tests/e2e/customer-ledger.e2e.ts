@@ -183,3 +183,22 @@ test('changing calendar while a form is open keeps the date consistent', async (
   await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
   await expect(page.getByRole('row').filter({ hasText:'تغییر تقویم' })).toContainText('2025/03/21');
 });
+
+
+test('salary snapshots base and keeps period calendar explicit', async ({ page }) => {
+  await page.goto('/'); await page.getByRole('button', { name:'معاشات', exact:true }).click();
+  await page.getByRole('button', { name:'پرداخت معاش جدید' }).click();
+  let dialog=page.getByRole('dialog');
+  await expect(dialog.getByLabel('معاش ثابت')).toHaveValue('15000.00');
+  await dialog.getByLabel('سال دوره').fill('۱۴۰۴'); await dialog.getByLabel('ماه دوره').selectOption('1');
+  await dialog.getByLabel('تاریخ پرداخت (شمسی)').fill('۱۴۰۴/۰۱/۰۱');
+  await dialog.getByLabel('پاداش').fill('100.50'); await dialog.getByLabel('جریمه').fill('50'); await dialog.getByLabel('اضافه‌کاری').fill('25');
+  await expect(dialog.locator('.total-box')).toContainText('15,075.50');
+  await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
+  let row=page.getByRole('row').filter({hasText:'احمد احمدی'}); await expect(row).toContainText('1404/01'); await expect(row).toContainText('شمسی'); await expect(row).toContainText('15,075.50');
+  await page.getByLabel('تقویم نمایش').selectOption('miladi'); await expect(row).toContainText('2025/03/21'); await expect(row).toContainText('شمسی');
+  await row.getByRole('button', { name:'ویرایش' }).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('جریمه').fill('20000'); await expect(dialog).toContainText('مجموع منفی است');
+  await dialog.getByLabel('نوع پرداخت').selectOption('transfer'); await dialog.getByRole('button', { name:'ذخیره معلومات' }).click();
+  row=page.getByRole('row').filter({hasText:'احمد احمدی'}); await expect(row).toContainText('حواله'); await expect(row).toContainText('-4,874.50');
+});

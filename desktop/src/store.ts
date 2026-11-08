@@ -1,8 +1,10 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { Customer, CustomerInput, Employee, Expense, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, Snapshot, Store } from './domain';
+import { Customer, CustomerInput, Employee, Expense, Salary, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store } from './domain';
 
 const tauriStore: Store = {
   snapshot: () => invoke<Snapshot>('snapshot'),
+  salaries: () => invoke<Salary[]>('list_salaries'),
+  saveSalary: (id, input) => invoke('save_salary', { id, input }),
   expenses: () => invoke<Expense[]>('list_expenses'),
   saveExpense: (id, input) => invoke('save_expense', { id, input }),
   employees: () => invoke<Employee[]>('list_employees'),
@@ -22,6 +24,7 @@ export function createDemoStore(seed = true): Store {
     { id: 'demo-3', code: 'CUS-003', name: 'موسسه راه و ساختمان', phone: '0788 321 654', opening: '0.00', balance: '0.00' },
   ];
   const staff: Employee[] = seed ? [{ id: 'demo-staff-1', code: 'EMP-001', name: 'احمد احمدی', father_name: 'کریم', job_title: 'راننده', hire_date: '2025-03-21', base_salary: '15000.00', phone: '0700123456', status: 'active' }] : [];
+  const salaries: Salary[] = [];
   const expenses: Expense[] = [];
   type DemoEntry = Entry & { customer_id: string; affects_balance: boolean };
   const entries: DemoEntry[] = [
@@ -53,6 +56,23 @@ export function createDemoStore(seed = true): Store {
   return {
     async snapshot(): Promise<Snapshot> {
       return structuredClone({ customers, entries, credit_sales: formatScaled(credit), receipts: formatScaled(receipts), total_balance: formatScaled(customers.reduce((a,c) => a + storedCents(c.balance), 0n)) });
+    },
+    async salaries() {
+      return structuredClone(salaries.map(s => { const e = staff.find(employee => employee.id === s.employee_id); return e ? { ...s, employee_name:e.name, employee_code:e.code } : s; }).sort((a,b) => b.pay_date.localeCompare(a.pay_date)));
+    },
+    async saveSalary(id, input) {
+      validateDate(input.pay_date);
+      if (!validSalaryPeriod(input.period_calendar, input.period_year, input.period_month)) throw new Error('دورهٔ معاش معتبر نیست.');
+      if (!['cash','transfer'].includes(input.payment_type)) throw new Error('نوع پرداخت معتبر نیست.');
+      const employee = staff.find(e => e.id === input.employee_id);
+      if (!employee) throw new Error('کارمند انتخاب‌شده وجود ندارد.');
+      const payer=input.payer.trim(), notes=input.notes.trim();
+      const bytes=(s:string) => new TextEncoder().encode(s).length;
+      if (bytes(payer)>320 || bytes(notes)>4000) throw new Error('متن واردشده بیش از حد طولانی است.');
+      const total=salaryTotal(input.base,input.bonus,input.fine,input.overtime);
+      const salary: Salary = { ...input, payer, notes, base:formatScaled(parseScaled(input.base,2)), bonus:formatScaled(parseScaled(input.bonus,2)), fine:formatScaled(parseScaled(input.fine,2)), overtime:formatScaled(parseScaled(input.overtime,2)), total:formatScaled(total), employee_name:employee.name, employee_code:employee.code, id:id || crypto.randomUUID() };
+      if (id) { const index=salaries.findIndex(s=>s.id===id); if (index<0) throw new Error('معاش انتخاب‌شده وجود ندارد.'); salaries[index]=salary; }
+      else salaries.unshift(salary);
     },
     async expenses() { return structuredClone(expenses.slice().sort((a,b) => b.date.localeCompare(a.date))); },
     async saveExpense(id, input) {
@@ -141,6 +161,8 @@ export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
   snapshot: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  salaries: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  saveSalary: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   expenses: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   saveExpense: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   employees: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

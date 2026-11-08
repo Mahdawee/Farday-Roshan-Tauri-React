@@ -83,3 +83,24 @@ describe('expense records', () => {
     expect(await s.expenses()).toHaveLength(1);
   });
 });
+
+
+describe('salary records', () => {
+  it('snapshots base pay, retains calendar and computes exact amounts', async () => {
+    const s = createDemoStore(false);
+    const employee = { code:'E1', name:'کارمند', father_name:'', job_title:'', hire_date:null, base_salary:'100.50', phone:'', status:'active' as const };
+    await s.saveEmployee(null, employee);
+    const id = (await s.employees())[0].id;
+    const salary = { employee_id:id, period_calendar:'shamsi' as const, period_year:1404, period_month:1, pay_date:'2025-03-21', base:'۱۰۰.۵۰', bonus:'10.25', fine:'5', overtime:'1', payer:'دخل', payment_type:'cash' as const, notes:'' };
+    await s.saveSalary(null,salary);
+    const [saved] = await s.salaries(); expect(saved.total).toBe('106.75');
+    await s.saveEmployee(id,{...employee,base_salary:'999',name:'نام جدید'});
+    expect((await s.salaries())[0]).toMatchObject({base:'100.50',employee_name:'نام جدید'});
+    await s.saveSalary(saved.id,{...salary,fine:'200',payment_type:'transfer'});
+    expect((await s.salaries())[0]).toMatchObject({total:'-88.25',period_calendar:'shamsi',payment_type:'transfer'});
+    await expect(s.saveSalary(null,{...salary,period_year:3178})).rejects.toThrow();
+    await expect(s.saveSalary(null,{...salary,employee_id:'missing'})).rejects.toThrow();
+    await expect(s.saveSalary(null,{...salary,pay_date:'2025-02-29'})).rejects.toThrow();
+    await expect(s.saveSalary('missing',salary)).rejects.toThrow();
+  });
+});
