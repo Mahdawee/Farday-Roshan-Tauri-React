@@ -221,3 +221,17 @@ describe('financial range summary',()=>{
     await expect(s.rangeSummary('2025-03-22','2025-03-21')).rejects.toThrow(); await expect(s.rangeSummary('2025-02-29','2025-03-21')).rejects.toThrow();
   });
 });
+
+it('financial summaries reflect edited date, customer and transaction type',async()=>{
+  const s=createDemoStore(false);
+  await s.addCustomer({code:'A',name:'A',phone:'',opening:'0'}); await s.addCustomer({code:'B',name:'B',phone:'',opening:'0'});
+  const [a,b]=(await s.snapshot()).customers;
+  const sale={customer_id:a.id,date:'2025-01-01',material:'ریگ',volume:'2',unit_price:'100',freight:'0',payment_type:'credit' as const};
+  await s.addSale(sale); const id=(await s.snapshot()).entries[0].id;
+  await s.updateSale(id,{...sale,customer_id:b.id,date:'2025-02-01',payment_type:'cash'},sale);
+  const receipt={customer_id:b.id,date:'2025-01-01',amount:'30',source:'deposit' as const};
+  await s.addReceipt(receipt); const rid=(await s.snapshot()).entries.find(e=>e.kind==='receipt')!.id;
+  await s.updateReceipt(rid,{...receipt,date:'2025-02-01',source:'debt'},receipt);
+  const old=await s.rangeSummary('2025-01-01','2025-01-31'); expect(old.sales_count).toBe(0); expect(old.receipts_count).toBe(0);
+  const latest=await s.rangeSummary('2025-02-01','2025-02-01'); expect(latest.sales_credit).toBe('0.00'); expect(latest.sales_cash).toBe('200.00'); expect(latest.receipts_deposit).toBe('0.00'); expect(latest.receipts_effective).toBe('30.00');
+});
