@@ -12,6 +12,18 @@ class SchemaTest(unittest.TestCase):
         self.db.executescript(SCHEMA.read_text())
         self.db.execute("INSERT INTO customers(id,code,name,opening_cents) VALUES('c','CUS-001','مشتری',10000)")
     def tearDown(self): self.db.close()
+    def test_attendance_compare_and_swap_uses_null_safe_times(self):
+        for file in ['0002_employees.sql','0005_attendance.sql']:
+            self.db.executescript((SCHEMA.parent / file).read_text())
+        self.db.execute("INSERT INTO employees(id,code,name) VALUES('e','E','کارمند')")
+        self.db.execute("INSERT INTO attendance(id,employee_id,work_date,status,overtime_hundredths) VALUES('a','e','2025-03-21','present',100)")
+        source=(SCHEMA.parent.parent / 'src/attendance.rs').read_text()
+        query=re.search(r'sqlx::query\("(UPDATE attendance SET .*?)"\)',source).group(1)
+        old=('a','e','2025-03-21','present',None,None,100,'')
+        win=('e','2025-03-21','leave','08:30',None,100,'')
+        self.assertEqual(self.db.execute(query,win+old).rowcount,1)
+        self.assertEqual(self.db.execute(query,('e','2025-03-21','present',None,None,200,'stale')+old).rowcount,0)
+        self.assertEqual(self.db.execute("SELECT status,check_in,overtime_hundredths FROM attendance WHERE id='a'").fetchone(),('leave','08:30',100))
     def test_employee_compare_and_swap_null_date_and_binary_code(self):
         self.db.executescript((SCHEMA.parent / '0002_employees.sql').read_text())
         self.db.execute("INSERT INTO employees(id,code,name,base_salary_cents) VALUES('e','EMP','کارمند',10000)")

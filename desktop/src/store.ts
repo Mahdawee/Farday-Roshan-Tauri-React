@@ -15,7 +15,7 @@ const tauriStore: Store = {
   transactionDetail: (kind,id) => invoke<TransactionDetail>('transaction_detail', { kind,id }),
   attendance: () => invoke<Attendance[]>('list_attendance'),
   createAttendanceBatch: (workDate, rows) => invoke('create_attendance_batch', { workDate, rows }),
-  saveAttendance: (id, input) => invoke('save_attendance', { id, input }),
+  saveAttendance: (id, input, expected) => invoke('save_attendance', { id, input, expected:expected ?? null }),
   salaries: () => invoke<Salary[]>('list_salaries'),
   saveSalary: (id, input, expected) => invoke('save_salary', { id, input, expected:expected ?? null }),
   expenses: () => invoke<Expense[]>('list_expenses'),
@@ -164,17 +164,25 @@ export function createDemoStore(seed = true): Store {
       const newRows=rows.map(row=>{const employee=staff.find(e=>e.id===row.employee_id)!; return {id:crypto.randomUUID(),employee_id:row.employee_id,employee_name:employee.name,employee_code:employee.code,work_date:workDate,status:row.status,check_in:null,check_out:null,overtime:'0.00',notes:''};});
       attendance.unshift(...newRows);
     },
-    async saveAttendance(id,input) {
+    async saveAttendance(id,input,expected) {
       validateDate(input.work_date);
       if (!['present','absent','leave','sick','holiday','friday'].includes(input.status)) throw new Error('وضعیت حضور معتبر نیست.');
       const employee=staff.find(e=>e.id===input.employee_id); if (!employee) throw new Error('کارمند انتخاب‌شده وجود ندارد.');
-      if (attendance.some(a=>a.id!==id && a.employee_id===input.employee_id && a.work_date===input.work_date)) throw new Error('برای این کارمند در این تاریخ قبلاً حضور ثبت شده است؛ رکورد موجود را ویرایش کنید.');
       const time=(raw: string | null) => { const text=normalizeDateDigits((raw || '').trim()); if (!text) return null; if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(text)) throw new Error('ساعت معتبر به شکل ۲۴ ساعته، مانند 08:30 وارد کنید.'); return text; };
       const overtime=parseScaled(input.overtime,2); if (overtime>99999n) throw new Error('اضافه‌کاری نباید بیشتر از ۹۹۹٫۹۹ ساعت باشد.');
       const notes=input.notes.trim(); if (new TextEncoder().encode(notes).length>1020) throw new Error('ملاحظات بیش از حد طولانی است.');
       const record:Attendance={...input,check_in:time(input.check_in),check_out:time(input.check_out),overtime:formatScaled(overtime),notes,employee_name:employee.name,employee_code:employee.code,id:id || crypto.randomUUID()};
-      if (id) { const index=attendance.findIndex(a=>a.id===id); if (index<0) throw new Error('رکورد حضور انتخاب‌شده وجود ندارد.'); attendance[index]=record; }
-      else attendance.unshift(record);
+      if (id) {
+        if(!expected) throw new Error('نسخهٔ قبلی حضور برای ویرایش لازم است؛ فرم را دوباره باز کنید.');
+        const index=attendance.findIndex(a=>a.id===id); const old=attendance[index];
+        if(!old || old.employee_id!==expected.employee_id || old.work_date!==expected.work_date || old.status!==expected.status || old.check_in!==expected.check_in || old.check_out!==expected.check_out || storedCents(old.overtime)!==parseScaled(expected.overtime,2) || old.notes!==expected.notes) throw new Error('رکورد حضور تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.');
+        if (attendance.some(a=>a.id!==id && a.employee_id===input.employee_id && a.work_date===input.work_date)) throw new Error('برای این کارمند در این تاریخ قبلاً حضور ثبت شده است؛ رکورد موجود را ویرایش کنید.');
+        attendance[index]=record;
+      } else {
+        if(expected) throw new Error('نسخهٔ قبلی برای حضور جدید قابل استفاده نیست.');
+        if (attendance.some(a=>a.employee_id===input.employee_id && a.work_date===input.work_date)) throw new Error('برای این کارمند در این تاریخ قبلاً حضور ثبت شده است؛ رکورد موجود را ویرایش کنید.');
+        attendance.unshift(record);
+      }
     },
     async salaries() {
       return structuredClone(salaries.map(s => { const e = staff.find(employee => employee.id === s.employee_id); return e ? { ...s, employee_name:e.name, employee_code:e.code } : s; }).sort((a,b) => b.pay_date.localeCompare(a.pay_date)));

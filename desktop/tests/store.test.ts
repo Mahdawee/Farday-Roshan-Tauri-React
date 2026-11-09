@@ -116,13 +116,13 @@ describe('attendance records', () => {
     await s.saveAttendance(null,input);
     const [saved]=await s.attendance(); expect(saved).toMatchObject({check_in:'08:30',overtime:'1.25'});
     await expect(s.saveAttendance(null,input)).rejects.toThrow('قبلاً');
-    await s.saveAttendance(saved.id,{...input,status:'leave',check_in:null});
+    await s.saveAttendance(saved.id,{...input,status:'leave',check_in:null},saved);
     expect((await s.attendance())[0]).toMatchObject({id:saved.id,status:'leave',check_in:null});
     await expect(s.saveAttendance(null,{...input,work_date:'2025-02-29'})).rejects.toThrow();
     await expect(s.saveAttendance(null,{...input,work_date:'2025-03-22',check_in:'24:00'})).rejects.toThrow();
     await expect(s.saveAttendance(null,{...input,work_date:'2025-03-22',overtime:'1000'})).rejects.toThrow();
     await expect(s.saveAttendance(null,{...input,employee_id:'missing'})).rejects.toThrow();
-    await expect(s.saveAttendance('missing', {...input,work_date:'2025-03-22'})).rejects.toThrow();
+    await expect(s.saveAttendance('missing', {...input,work_date:'2025-03-22'},saved)).rejects.toThrow();
     expect(await s.attendance()).toHaveLength(1);
   });
 });
@@ -369,4 +369,20 @@ it('rejects stale employee edits, including code case and null hire date, withou
   const current=(await s.employees())[0]; expect(current).toMatchObject({code:'e',base_salary:'200.00',phone:''});
   await s.saveEmployee(current.id,{...current,phone:'0700'},current);
   expect((await s.salaries())[0].base).toBe('100.00');
+});
+
+it('rejects stale attendance while accepting employee name changes and preserving winner',async()=>{
+  const s=createDemoStore(false);
+  await s.saveEmployee(null,{code:'E',name:'کارمند',father_name:'',job_title:'',hire_date:null,base_salary:'0',phone:'',status:'active'});
+  const employee=(await s.employees())[0];
+  await s.saveAttendance(null,{employee_id:employee.id,work_date:'2025-03-21',status:'present',check_in:null,check_out:null,overtime:'1',notes:''});
+  const old=(await s.attendance())[0];
+  await expect(s.saveAttendance(old.id,old)).rejects.toThrow('نسخهٔ قبلی');
+  await expect(s.saveAttendance(null,old,old)).rejects.toThrow('نسخهٔ قبلی');
+  await s.saveEmployee(employee.id,{...employee,name:'نام جدید'},employee);
+  await s.saveAttendance(old.id,{...old,status:'leave',check_in:'08:30'},old);
+  await expect(s.saveAttendance(old.id,{...old,notes:'تغییر کهنه'},old)).rejects.toThrow('رکورد حضور تغییر کرده');
+  const fresh=(await s.attendance())[0]; expect(fresh).toMatchObject({employee_name:'نام جدید',status:'leave',check_in:'08:30',notes:''});
+  await s.saveAttendance(fresh.id,{...fresh,notes:'جدید'},fresh);
+  expect((await s.attendance())[0].notes).toBe('جدید');
 });

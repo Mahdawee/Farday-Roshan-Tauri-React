@@ -632,3 +632,20 @@ test('stale employee edits preserve form input and reload the current employee',
   await dialog.getByLabel('شماره تماس').fill('0700'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
   await expect(row).toContainText('16,000');
 });
+
+test('stale attendance edits refresh the list without losing typed input',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'حضور و غیاب',exact:true}).click();
+  await page.getByRole('button',{name:'ثبت حضور جدید'}).click(); let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ کار (شمسی)').fill('۱۴۰۴/۰۱/۰۱'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  const row=page.getByRole('row').filter({hasText:'احمد احمدی'}); await row.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('ملاحظات').fill('تایپ‌شده');
+  await page.evaluate(async()=>{
+    const modulePath=performance.getEntriesByType('resource').map(x=>x.name).find(x=>new URL(x).pathname==='/src/store.ts')!; const {store}=await import(/* @vite-ignore */ modulePath);
+    const old=(await store.attendance())[0]; await store.saveAttendance(old.id,{...old,status:'leave'},old);
+  });
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(dialog.getByRole('alert')).toContainText('رکورد حضور تغییر کرده');
+  await expect(dialog.getByLabel('ملاحظات')).toHaveValue('تایپ‌شده'); await dialog.getByRole('button',{name:'انصراف'}).click();
+  await expect(row).toContainText('رخصت'); await row.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
+  await expect(dialog.getByLabel('وضعیت حضور')).toHaveValue('leave'); await dialog.getByLabel('ملاحظات').fill('تایپ‌شده');
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(row).toContainText('رخصت');
+});

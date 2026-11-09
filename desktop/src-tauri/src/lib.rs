@@ -83,7 +83,7 @@ async fn save_salary(db: State<'_, Database>, id: Option<String>, input: salarie
 #[tauri::command]
 async fn list_attendance(db: State<'_, Database>) -> Result<Vec<attendance::Attendance>, String> { attendance::list(&db.0).await }
 #[tauri::command]
-async fn save_attendance(db: State<'_, Database>, id: Option<String>, input: attendance::AttendanceInput) -> Result<(), String> { attendance::save(&db.0, id, input).await }
+async fn save_attendance(db: State<'_, Database>, id: Option<String>, input: attendance::AttendanceInput, expected: Option<attendance::AttendanceInput>) -> Result<(), String> { attendance::save(&db.0, id, input, expected).await }
 
 #[tauri::command]
 async fn create_attendance_batch(db: State<'_, Database>, work_date: String, rows: Vec<attendance::BatchRow>) -> Result<(), String> { attendance::create_batch(&db.0, work_date, rows).await }
