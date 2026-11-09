@@ -66,8 +66,8 @@ async fn list_employees(db: State<'_, Database>) -> Result<Vec<employees::Employ
     employees::list(&db.0).await
 }
 #[tauri::command]
-async fn save_employee(db: State<'_, Database>, id: Option<String>, input: employees::EmployeeInput) -> Result<(), String> {
-    employees::save(&db.0, id, input).await
+async fn save_employee(db: State<'_, Database>, id: Option<String>, input: employees::EmployeeInput, expected: Option<employees::EmployeeInput>) -> Result<(), String> {
+    employees::save(&db.0, id, input, expected).await
 }
 
 #[tauri::command]

@@ -59,11 +59,11 @@ describe('employee records', () => {
     const [saved] = await s.employees();
     expect(saved.base_salary).toBe('15000.50');
     await expect(s.saveEmployee(null, { ...employee, code:'emp-1' })).rejects.toThrow();
-    await s.saveEmployee(saved.id, { ...employee, status:'inactive' });
+    await s.saveEmployee(saved.id, { ...employee, status:'inactive' },saved);
     const [updated] = await s.employees();
     expect(updated.id).toBe(saved.id);
     expect(updated.status).toBe('inactive');
-    await expect(s.saveEmployee('missing', employee)).rejects.toThrow();
+    await expect(s.saveEmployee('missing', employee,employee)).rejects.toThrow();
     await expect(s.saveEmployee(null, { ...employee, code:'EMP-2', hire_date:'2025-02-29' })).rejects.toThrow();
   });
 });
@@ -95,7 +95,7 @@ describe('salary records', () => {
     const salary = { employee_id:id, period_calendar:'shamsi' as const, period_year:1404, period_month:1, pay_date:'2025-03-21', base:'۱۰۰.۵۰', bonus:'10.25', fine:'5', overtime:'1', payer:'دخل', payment_type:'cash' as const, notes:'' };
     await s.saveSalary(null,salary);
     const [saved] = await s.salaries(); expect(saved.total).toBe('106.75');
-    await s.saveEmployee(id,{...employee,base_salary:'999',name:'نام جدید'});
+    await s.saveEmployee(id,{...employee,base_salary:'999',name:'نام جدید'},(await s.employees())[0]);
     expect((await s.salaries())[0]).toMatchObject({base:'100.50',employee_name:'نام جدید'});
     await s.saveSalary(saved.id,{...salary,fine:'200',payment_type:'transfer'},saved);
     expect((await s.salaries())[0]).toMatchObject({total:'-88.25',period_calendar:'shamsi',payment_type:'transfer'});
@@ -338,7 +338,7 @@ it('rejects stale salary changes while retaining the winning edit and employee s
   await expect(s.saveSalary(old.id,{...old,fine:'200'},old)).rejects.toThrow('تغییر کرده');
   await expect(s.saveSalary(old.id,input)).rejects.toThrow('نسخهٔ قبلی');
   expect((await s.salaries())[0]).toMatchObject({notes:'دیگر',total:'100.00'});
-  const [fresh]=await s.salaries(); await s.saveEmployee(employee.id,{...employee,name:'نام جدید',base_salary:'500'});
+  const [fresh]=await s.salaries(); await s.saveEmployee(employee.id,{...employee,name:'نام جدید',base_salary:'500'},employee);
   await s.saveSalary(fresh.id,{...fresh,fine:'200'},fresh);
   expect((await s.salaries())[0]).toMatchObject({notes:'دیگر',employee_name:'نام جدید',base:'100.00',total:'-100.00'});
 });
@@ -354,4 +354,19 @@ it('customer CAS detects case-only changes without blocking new transactions',as
   const fresh=(await s.snapshot()).customers[0]; expect(fresh.balance).toBe('130.00');
   await s.updateCustomer(fresh.id,{...fresh,opening:'200'},fresh);
   expect((await s.ledger(fresh.id)).balance).toBe('230.00');
+});
+
+
+it('rejects stale employee edits, including code case and null hire date, without blocking new salary records',async()=>{
+  const s=createDemoStore(false);
+  await s.saveEmployee(null,{code:'E',name:'کارمند',father_name:'',job_title:'',hire_date:null,base_salary:'100',phone:'',status:'active'});
+  const old=(await s.employees())[0];
+  await s.saveSalary(null,{employee_id:old.id,period_calendar:'shamsi',period_year:1404,period_month:1,pay_date:'2025-03-21',base:'100',bonus:'0',fine:'0',overtime:'0',payer:'',payment_type:'cash',notes:''});
+  await expect(s.saveEmployee(old.id,old)).rejects.toThrow('نسخهٔ قبلی');
+  await expect(s.saveEmployee(null,old,old)).rejects.toThrow('نسخهٔ قبلی');
+  await s.saveEmployee(old.id,{...old,code:'e',base_salary:'200'},old);
+  await expect(s.saveEmployee(old.id,{...old,phone:'0700'},old)).rejects.toThrow('کارمند تغییر کرده');
+  const current=(await s.employees())[0]; expect(current).toMatchObject({code:'e',base_salary:'200.00',phone:''});
+  await s.saveEmployee(current.id,{...current,phone:'0700'},current);
+  expect((await s.salaries())[0].base).toBe('100.00');
 });

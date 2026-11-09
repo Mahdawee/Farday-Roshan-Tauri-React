@@ -616,3 +616,19 @@ test('stale customer edits do not overwrite a newer opening balance',async({page
   await dialog.getByLabel('شماره تماس').fill('0700'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
   await expect(row).toContainText('42,500');
 });
+
+test('stale employee edits preserve form input and reload the current employee',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'کارمندان',exact:true}).click();
+  const row=page.getByRole('row').filter({hasText:'احمد احمدی'}); await row.getByRole('button',{name:'ویرایش'}).click();
+  let dialog=page.getByRole('dialog'); await dialog.getByLabel('شماره تماس').fill('0700');
+  await page.evaluate(async()=>{
+    const modulePath=performance.getEntriesByType('resource').map(x=>x.name).find(x=>new URL(x).pathname==='/src/store.ts')!; const {store}=await import(/* @vite-ignore */ modulePath);
+    const old=(await store.employees()).find((e:{name:string})=>e.name==='احمد احمدی'); await store.saveEmployee(old.id,{...old,base_salary:'16000'},old);
+  });
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(dialog.getByRole('alert')).toContainText('کارمند تغییر کرده');
+  await expect(dialog.getByLabel('شماره تماس')).toHaveValue('0700'); await dialog.getByRole('button',{name:'انصراف'}).click();
+  await row.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
+  await expect(dialog.getByLabel('معاش پایه (افغانی)')).toHaveValue('16000.00');
+  await dialog.getByLabel('شماره تماس').fill('0700'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await expect(row).toContainText('16,000');
+});

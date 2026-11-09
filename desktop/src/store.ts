@@ -21,7 +21,7 @@ const tauriStore: Store = {
   expenses: () => invoke<Expense[]>('list_expenses'),
   saveExpense: (id, input, expected) => invoke('save_expense', { id, input, expected:expected ?? null }),
   employees: () => invoke<Employee[]>('list_employees'),
-  saveEmployee: (id, input) => invoke('save_employee', { id, input }),
+  saveEmployee: (id, input, expected) => invoke('save_employee', { id, input, expected:expected ?? null }),
   ledger: customerId => invoke<Ledger>('customer_ledger', { customerId }),
   addCustomer: input => invoke('add_customer', { input }),
   updateCustomer: (id, input, expected) => invoke('update_customer', { id, input, expected }),
@@ -217,18 +217,24 @@ export function createDemoStore(seed = true): Store {
       } else { if(expected)throw new Error('نسخهٔ قبلی برای مصرف جدید قابل استفاده نیست.'); expenses.unshift(expense); }
     },
     async employees() { return structuredClone(staff); },
-    async saveEmployee(id, input) {
+    async saveEmployee(id, input, expected) {
       const code = input.code.trim(), name = input.name.trim();
       if (!code || !name) throw new Error('کد و نام کارمند الزامی است.');
-      if (staff.some(e => e.id !== id && e.code.toLowerCase() === code.toLowerCase())) throw new Error('کد کارمند قبلاً ثبت شده است.');
       if (input.hire_date) validateDate(input.hire_date);
       const base_salary = formatScaled(parseScaled(input.base_salary, 2));
-      const employee = { ...input, code, name, base_salary, id: id || crypto.randomUUID() };
+      const employee = { ...input, code, name, father_name:input.father_name.trim(), job_title:input.job_title.trim(), phone:input.phone.trim(), base_salary, id: id || crypto.randomUUID() };
       if (id) {
+        if (!expected) throw new Error('نسخهٔ قبلی کارمند برای ویرایش لازم است؛ فرم را دوباره باز کنید.');
         const index = staff.findIndex(e => e.id === id);
-        if (index < 0) throw new Error('کارمند انتخاب‌شده وجود ندارد.');
+        const old = staff[index];
+        if (!old || old.code!==expected.code || old.name!==expected.name || old.father_name!==expected.father_name || old.job_title!==expected.job_title || old.hire_date!==expected.hire_date || storedCents(old.base_salary)!==parseScaled(expected.base_salary,2) || old.phone!==expected.phone || old.status!==expected.status) throw new Error('کارمند تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.');
+        if (staff.some(e => e.id !== id && e.code.toLowerCase() === code.toLowerCase())) throw new Error('کد کارمند قبلاً ثبت شده است.');
         staff[index] = employee;
-      } else staff.push(employee);
+      } else {
+        if(expected) throw new Error('نسخهٔ قبلی برای کارمند جدید قابل استفاده نیست.');
+        if (staff.some(e => e.code.toLowerCase() === code.toLowerCase())) throw new Error('کد کارمند قبلاً ثبت شده است.');
+        staff.push(employee);
+      }
     },
     async ledger(customerId): Promise<Ledger> {
       const customer = customers.find(c => c.id === customerId);
