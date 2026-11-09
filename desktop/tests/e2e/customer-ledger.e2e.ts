@@ -528,3 +528,27 @@ test('ledger print spans pages without limiting the number of rows',async({page}
   const pdf=await page.pdf({format:'A4'}); expect((pdf.toString('latin1').match(/\/Type\s*\/Page\b/g)??[]).length).toBeGreaterThan(2);
   expect(await dialog.evaluate(el=>getComputedStyle(el).maxHeight)).toBe('none');
 });
+
+test('grouped report uses both dates, exact labels, and separate currencies',async({page})=>{
+  await page.goto('/'); await page.getByLabel('تقویم نمایش').selectOption('miladi');
+  await page.getByRole('button',{name:'راپور تفکیکی',exact:true}).click();
+  await page.evaluate(async()=>{
+    const modulePath=performance.getEntriesByType('resource').map(x=>x.name).find(x=>new URL(x).pathname==='/src/store.ts')!; const {store}=await import(/* @vite-ignore */ modulePath);
+    const sale={customer_id:'demo-1',date:'2025-03-21',material:'ریگ',volume:'1',unit_price:'10',freight:'0',payment_type:'cash'};
+    await store.addSale(sale); await store.addSale({...sale,date:'2025-03-22',payment_type:'credit',unit_price:'20'}); await store.addSale({...sale,date:'2025-03-23',material:'خاک'});
+    const expense={date:'2025-03-21',description:'x',expense_type:'تیل',purchase_bill_no:'',shop_name:'',amount_afn:'1.20',amount_usd:'3.40',payer:'علی',payment_method:'credit',notes:''};
+    await store.saveExpense(null,expense); await store.saveExpense(null,{...expense,date:'2025-03-22',payer:'',amount_afn:'0.80',amount_usd:'0.25',payment_method:'cash'});
+  });
+  await page.getByLabel('از تاریخ (میلادی)').fill('2025/03/21'); await page.getByLabel('تا تاریخ (میلادی)').fill('2025/03/22');
+  await page.getByRole('button',{name:'محاسبهٔ راپور تفکیکی'}).click();
+  const materials=page.getByRole('region',{name:'فروش بر اساس مواد'}); const materialRow=materials.getByRole('row').filter({hasText:'ریگ'});
+  await expect(materialRow).toContainText('2'); await expect(materialRow).toContainText('2.000'); await expect(materialRow).toContainText('30'); await expect(materials).not.toContainText('خاک');
+  const types=page.getByRole('region',{name:'مصارف بر اساس نوع'}); await expect(types.getByRole('row').filter({hasText:'تیل'})).toContainText('3.65'); await expect(types.getByRole('row').filter({hasText:'تیل'}).getByRole('cell').nth(2)).toHaveText('2');
+  const payers=page.getByRole('region',{name:'مصارف بر اساس پرداخت‌کننده'}); await expect(payers).toContainText('ثبت نشده (خالی)'); await expect(payers).toContainText('0.25');
+  await page.getByLabel('از تاریخ (میلادی)').fill('2025/03/23'); await expect(materials).toHaveCount(0);
+  await page.getByRole('button',{name:'محاسبهٔ راپور تفکیکی'}).click(); await expect(page.getByRole('alert')).toContainText('تاریخ آغاز');
+  await page.getByLabel('تقویم نمایش').selectOption('shamsi');
+  await page.getByLabel('از تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۱'); await page.getByLabel('تا تاریخ (شمسی)').fill('۱۴۰۴/۰۱/۰۲');
+  await page.getByRole('button',{name:'محاسبهٔ راپور تفکیکی'}).click();
+  await expect(page.getByRole('region',{name:'فروش بر اساس مواد'}).getByRole('row').filter({hasText:'ریگ'})).toContainText('30');
+});

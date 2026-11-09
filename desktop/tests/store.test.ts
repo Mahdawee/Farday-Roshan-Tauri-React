@@ -289,3 +289,23 @@ describe('manual cashbook', () => {
     expect((await s.cashbox(q)).total).toBe(31);
   });
 });
+
+describe('grouped reports',()=>{
+  it('groups full history by exact text and preserves currency and payment distinctions',async()=>{
+    const s=createDemoStore(false); await s.addCustomer({code:'C',name:'مشتری',phone:'',opening:'0'}); const id=(await s.snapshot()).customers[0].id;
+    for(let i=0;i<105;i++) await s.addSale({customer_id:id,date:'2025-03-21',material:'ریگ',volume:'1',unit_price:'1',freight:'0',payment_type:'credit'});
+    await s.addSale({customer_id:id,date:'2025-03-22',material:'ریگ',volume:'1.25',unit_price:'1',freight:'0',payment_type:'cash'});
+    await s.addSale({customer_id:id,date:'2025-03-23',material:'خاک',volume:'1',unit_price:'1',freight:'0',payment_type:'cash'});
+    const expense={date:'2025-03-21',description:'x',expense_type:'تیل',purchase_bill_no:'',shop_name:'',amount_afn:'1.20',amount_usd:'3.40',payer:'علی',payment_method:'credit' as const,notes:''};
+    await s.saveExpense(null,expense); await s.saveExpense(null,{...expense,date:'2025-03-22',payer:'',amount_afn:'0.80',amount_usd:'0.25',payment_method:'cash'});
+    await s.saveExpense(null,{...expense,date:'2025-03-21',expense_type:'تیل دیگر',amount_afn:'0',amount_usd:'1'});
+    await s.saveExpense(null,{...expense,date:'2025-03-23',amount_afn:'999'});
+    const report=await s.groupedReport('2025-03-21','2025-03-22');
+    expect(report.materials).toEqual([{material:'ریگ',count:106,volume:'106.250',total:'106.25',cash:'1.25',credit:'105.00'}]);
+    expect(report.expense_types).toEqual([{label:'تیل',count:2,afn:'2.00',usd:'3.65'},{label:'تیل دیگر',count:1,afn:'0.00',usd:'1.00'}]);
+    expect(report.payers).toEqual([{label:'علی',count:2,afn:'1.20',usd:'4.40'},{label:'',count:1,afn:'0.80',usd:'0.25'}]);
+    expect(await s.groupedReport('2024-01-01','2024-01-01')).toEqual({materials:[],expense_types:[],payers:[]});
+    await expect(s.groupedReport('2025-02-29','2025-03-22')).rejects.toThrow(); await expect(s.groupedReport('2025-03-23','2025-03-22')).rejects.toThrow();
+    const sum=await s.rangeSummary('2025-03-21','2025-03-22'); expect(sum.sales_cash).toBe(report.materials[0].cash); expect(sum.sales_credit).toBe(report.materials[0].credit); expect(sum.expenses_afn).toBe('2.00'); expect(sum.expenses_usd).toBe('4.65');
+  });
+});

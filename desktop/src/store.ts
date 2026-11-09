@@ -1,8 +1,9 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { normalizeDateDigits } from './calendar';
-import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary, SaleDetails, ReceiptDetails, CashboxEntry, CashboxPage } from './domain';
+import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary, SaleDetails, ReceiptDetails, CashboxEntry, CashboxPage, GroupedReport } from './domain';
 
 const tauriStore: Store = {
+  groupedReport: (from,to) => invoke<GroupedReport>('grouped_report',{from,to}),
   cashbox: query => invoke<CashboxPage>('cashbox_page',{query}),
   addCashbox: input => invoke('add_cashbox_entry',{input}),
   rangeSummary: (from,to) => invoke<RangeSummary>('range_summary', {from,to}),
@@ -70,6 +71,24 @@ export function createDemoStore(seed = true): Store {
     if (Number(m[1]) < 1 || !Number.isFinite(d.getTime()) || d.toISOString().slice(0, 10) !== date) throw new Error('تاریخ میلادی معتبر وارد کنید.');
   };
   return {
+    async groupedReport(from,to) {
+      validateDate(from); validateDate(to); if(from>to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
+      const within=(date:string)=>date>=from && date<=to;
+      // SQLite BINARY compares UTF-8 bytes. Map keys preserve the exact saved text.
+      const compare=(a:string,b:string)=>{const x=new TextEncoder().encode(a),y=new TextEncoder().encode(b); for(let i=0;i<Math.min(x.length,y.length);i++){if(x[i]!==y[i])return x[i]-y[i];} return x.length-y.length;};
+      const sales=new Map<string,{count:number;volume:bigint;cash:bigint;credit:bigint}>();
+      for(const e of entries) if(e.kind==='sale' && within(e.date)) {
+        const key=e.sale!.material, g=sales.get(key) ?? {count:0,volume:0n,cash:0n,credit:0n};
+        g.count++; g.volume+=parseScaled(e.sale!.volume,3); if(e.subtype==='cash')g.cash+=storedCents(e.amount);else g.credit+=storedCents(e.amount); sales.set(key,g);
+      }
+      const materials=[...sales].sort((a,b)=>{const diff=b[1].cash+b[1].credit-a[1].cash-a[1].credit;return diff===0n?compare(a[0],b[0]):diff>0n?1:-1;}).map(([material,g])=>({material,count:g.count,volume:formatScaled(g.volume,3),total:formatScaled(g.cash+g.credit),cash:formatScaled(g.cash),credit:formatScaled(g.credit)}));
+      const groupExpenses=(field:'expense_type'|'payer')=>{
+        const groups=new Map<string,{count:number;afn:bigint;usd:bigint}>();
+        for(const e of expenses) if(within(e.date)) {const key=e[field],g=groups.get(key) ?? {count:0,afn:0n,usd:0n}; g.count++;g.afn+=storedCents(e.amount_afn);g.usd+=storedCents(e.amount_usd);groups.set(key,g);}
+        return [...groups].sort((a,b)=>a[1].afn===b[1].afn?compare(a[0],b[0]):a[1].afn>b[1].afn?-1:1).map(([label,g])=>({label,count:g.count,afn:formatScaled(g.afn),usd:formatScaled(g.usd)}));
+      };
+      return {materials,expense_types:groupExpenses('expense_type'),payers:groupExpenses('payer')};
+    },
     async addCashbox(input) {
       validateDate(input.date); if (!['in','out'].includes(input.direction)) throw new Error('نوع حرکت دخل معتبر نیست.');
       const description=text(input.description,1000); if (!description) throw new Error('شرح معتبر برای حرکت دخل وارد کنید.');
@@ -280,6 +299,7 @@ export function createDemoStore(seed = true): Store {
 export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
+  groupedReport: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   cashbox: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addCashbox: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   rangeSummary: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
