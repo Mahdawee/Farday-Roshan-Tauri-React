@@ -80,3 +80,6 @@ jobs:
           path: desktop/src-tauri/target/debug/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 7
+      - name: Smoke test installer and uninstaller
+        shell: pwsh
+        run: ./tests/windows_installer_smoke.ps1
