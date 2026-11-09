@@ -709,6 +709,20 @@ mod tests {
         safety.close().await; live.close().await; std::fs::remove_dir_all(base).unwrap();
     }
     #[tokio::test]
+    async fn invalid_cashbox_date_rolls_back_with_safety_backup() {
+        let base=std::env::temp_dir().join(format!("farday-cashbox-invalid-{}",Uuid::new_v4())); std::fs::create_dir(&base).unwrap();
+        let live=open_database(base.join("live.sqlite3")).await.unwrap();
+        sqlx::query("INSERT INTO cashbox_entries(id,entry_date,direction,description,amount_afn_cents) VALUES('m','2025-01-01','in','معتبر',500)").execute(&live).await.unwrap();
+        let saved=base.join("backup.sqlite3"); create_backup(&live,saved.clone()).await.unwrap();
+        let source=SqlitePoolOptions::new().connect_with(SqliteConnectOptions::new().filename(&saved)).await.unwrap();
+        sqlx::query("UPDATE cashbox_entries SET entry_date='2025-02-29'").execute(&source).await.unwrap(); source.close().await;
+        sqlx::query("UPDATE cashbox_entries SET description='فعلی'").execute(&live).await.unwrap();
+        assert!(restore(&live,saved,base.join("safety")).await.is_err());
+        assert_eq!(sqlx::query_scalar::<_,String>("SELECT description FROM cashbox_entries").fetch_one(&live).await.unwrap(),"فعلی");
+        assert_eq!(std::fs::read_dir(base.join("safety")).unwrap().count(),1);
+        live.close().await; std::fs::remove_dir_all(base).unwrap();
+    }
+    #[tokio::test]
     async fn invalid_attendance_time_rolls_back_with_safety_backup() {
         let base=std::env::temp_dir().join(format!("farday-attendance-invalid-{}",Uuid::new_v4())); std::fs::create_dir(&base).unwrap();
         let live=open_database(base.join("live.sqlite3")).await.unwrap();
