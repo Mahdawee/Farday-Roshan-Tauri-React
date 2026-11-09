@@ -12,6 +12,22 @@ class SchemaTest(unittest.TestCase):
         self.db.executescript(SCHEMA.read_text())
         self.db.execute("INSERT INTO customers(id,code,name,opening_cents) VALUES('c','CUS-001','مشتری',10000)")
     def tearDown(self): self.db.close()
+    def test_audit_records_actual_values_atomically_and_is_append_only(self):
+        for file in sorted(SCHEMA.parent.glob('*.sql'))[1:]:
+            self.db.executescript(file.read_text())
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM audit_events').fetchone()[0],0)
+        self.db.execute("UPDATE customers SET opening_cents=25000 WHERE id='c'")
+        event=self.db.execute("SELECT entity,entity_id,operation,actor,json_extract(before_json,'$.opening_cents'),json_extract(after_json,'$.opening_cents') FROM audit_events").fetchone()
+        self.assertEqual(event,('customers','c','update',None,10000,25000))
+        self.db.execute('SAVEPOINT check_rollback')
+        self.db.execute("UPDATE customers SET name='لغو' WHERE id='c'")
+        self.db.execute('ROLLBACK TO check_rollback'); self.db.execute('RELEASE check_rollback')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM audit_events').fetchone()[0],1)
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute('DELETE FROM audit_events')
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("UPDATE audit_events SET actor='x'")
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2025-01-01','ریگ',1000,100,0,100,'cash')")
+        self.db.execute("INSERT INTO sale_details(sale_id,bill_no) VALUES('s','B1')")
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM audit_events WHERE entity IN ('sales','sale_details')").fetchone()[0],2)
     def test_attendance_compare_and_swap_uses_null_safe_times(self):
         for file in ['0002_employees.sql','0005_attendance.sql']:
             self.db.executescript((SCHEMA.parent / file).read_text())

@@ -649,3 +649,11 @@ test('stale attendance edits refresh the list without losing typed input',async(
   await expect(dialog.getByLabel('وضعیت حضور')).toHaveValue('leave'); await dialog.getByLabel('ملاحظات').fill('تایپ‌شده');
   await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(row).toContainText('رخصت');
 });
+
+
+test('browser preview does not claim to provide an audit trail',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'تاریخچهٔ تغییرات',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'تاریخچهٔ تغییرات آزمایشی'})).toBeVisible();
+  await expect(page.getByText('تاریخچه فقط در نسخهٔ دسکتاپ ثبت و نمایش داده می‌شود؛ پیش‌نمایش مرورگر فاقد آن است.')).toBeVisible();
+  await expect(page.getByText('کاربر انجام‌دهنده هنوز مشخص نیست.',{exact:false})).toBeVisible();
+});

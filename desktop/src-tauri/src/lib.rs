@@ -9,6 +9,7 @@ mod grouped_reports;
 mod cashbox;
 mod preferences;
 mod restore;
+mod audit;
 use service::{CustomerInput, ReceiptInput, SaleInput, Snapshot, Ledger};
 use sqlx::SqlitePool;
 use tauri::{Manager, State};
@@ -116,6 +117,9 @@ async fn cashbox_page(db: State<'_, Database>, query: cashbox::CashboxQuery) -> 
 #[tauri::command]
 async fn add_cashbox_entry(db: State<'_, Database>, input: cashbox::CashboxInput) -> Result<(),String> {cashbox::add(&db.0,input).await}
 
+#[tauri::command]
+async fn audit_page(db: State<'_, Database>, page:i64) -> Result<audit::AuditPage,String> { audit::list(&db.0,page).await }
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -127,7 +131,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail, range_summary, grouped_report, export_grouped_csv, export_range_csv, get_calendar_preference, set_calendar_preference, cashbox_page, add_cashbox_entry])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail, range_summary, grouped_report, export_grouped_csv, export_range_csv, get_calendar_preference, set_calendar_preference, cashbox_page, add_cashbox_entry, audit_page])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }
