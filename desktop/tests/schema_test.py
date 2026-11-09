@@ -144,6 +144,17 @@ class SchemaTest(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO attendance(id,employee_id,work_date,status,overtime_hundredths) VALUES (?,?,?,?,?)",args)
         with self.assertRaises(sqlite3.IntegrityError): self.db.execute("DELETE FROM employees WHERE id='e'")
 
+    def test_supplemental_transaction_details_constraints(self):
+        self.db.executescript((SCHEMA.parent / '0006_transaction_details.sql').read_text())
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2025-01-01','ریگ',1000,100,0,100,'credit')")
+        self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c','2025-01-01',100,'debt')")
+        self.db.execute("INSERT INTO sale_details(sale_id,bill_no) VALUES('s','BL-1')")
+        self.db.execute("INSERT INTO receipt_details(receipt_id,received_by) VALUES('r','احمد')")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO sale_details(sale_id) VALUES('missing')")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("UPDATE sale_details SET bill_no=? WHERE sale_id='s'",('الف'*81,))
+        self.db.execute("DELETE FROM sales WHERE id='s'")
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM sale_details").fetchone()[0],0)
+
     def test_actual_paged_transaction_sql_searches_all_records_literally(self):
         source=(SCHEMA.parent.parent / 'src/transactions.rs').read_text()
         sale=re.search(r'"sale" => "(.*?)",',source,re.S).group(1)
