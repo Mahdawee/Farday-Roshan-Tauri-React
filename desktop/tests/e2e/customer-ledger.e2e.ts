@@ -408,3 +408,11 @@ test('sale and receipt supplemental fields can be saved edited and searched',asy
   await page.getByLabel('جستجو',{exact:true}).fill('دریافت آزمایشی'); row=page.getByRole('row').filter({hasText:'باقی داری'}); await row.getByRole('button',{name:'جزئیات'}).click(); dialog=page.getByRole('dialog'); await expect(dialog).toContainText('BL-TEST-11'); await expect(dialog).toContainText('شرح رسید'); await dialog.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog'); await dialog.getByLabel('دریافت‌کننده').fill('دریافت جدید'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
   await expect(page.getByRole('row').filter({hasText:'باقی داری'})).toHaveCount(0); await page.getByLabel('جستجو',{exact:true}).fill('دریافت جدید'); await expect(page.getByRole('row').filter({hasText:'باقی داری'})).toHaveCount(1);
 });
+
+test('navigation remains scrollable on short screens',async({page})=>{
+  await page.setViewportSize({width:390,height:480}); await page.goto('/'); await page.getByRole('button',{name:'باز کردن منو'}).click();
+  const side=page.locator('.sidebar'); expect(await side.evaluate(el=>el.scrollHeight>el.clientHeight)).toBe(true);
+  await side.getByRole('button',{name:'پشتیبان‌گیری',exact:true}).scrollIntoViewIfNeeded();
+  expect(await side.evaluate(el=>el.scrollTop)).toBeGreaterThan(0); await side.getByRole('button',{name:'پشتیبان‌گیری',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'پشتیبان‌گیری و بازگردانی'})).toBeVisible();
+});

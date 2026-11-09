@@ -15,3 +15,6 @@
 .pagination{display:flex;align-items:center;justify-content:center;gap:14px;padding:18px;color:#59716b;font-size:12px}.pagination .btn{height:36px}
 
 .supplemental-fields{margin-top:15px}.field textarea{width:100%;min-height:72px;resize:vertical;border:1px solid #dfe9e5;border-radius:8px;padding:9px 11px;color:#38564e;background:#fff;outline:none;font:inherit;font-size:12px}.field textarea:focus{border-color:#47a99a;box-shadow:0 0 0 3px #dff4ed}.details-text{white-space:pre-wrap;overflow-wrap:anywhere;max-width:360px}
+
+/* Keep the growing navigation usable on short desktop and mobile viewports. */
+.sidebar{overflow-y:auto}.sidebar>*{flex-shrink:0}
