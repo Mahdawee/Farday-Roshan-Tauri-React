@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { ArrowDownLeft, ArrowLeft, ArrowUpLeft, Archive, Box, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock3, FileBarChart, LayoutDashboard, Menu, Package, Plus, ReceiptText, Search, Settings, ShieldCheck, ShoppingCart, Users, Wallet, X } from 'lucide-react';
 import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, TransactionPage, TransactionDetail, RangeSummary, GroupedReport, ExpenseGroup, CashboxPage, SaleDetails, ReceiptDetails, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
 import { inDesktop, store } from './store';
-import { BackupInfo, chooseBackup, createBackup, restoreBackup, exportRangeCsv } from './backup';
+import { BackupInfo, chooseBackup, createBackup, restoreBackup, exportRangeCsv, exportGroupedCsv } from './backup';
 import { attendanceLabels, summarizeAttendance, monthlyAttendance } from './attendance';
 import { summarizeSalaries } from './salaries';
 import { summarizeExpenses } from './expenses';
@@ -179,9 +179,9 @@ function GroupedReports({calendar}:{calendar:Calendar}) {
   const today=displayCalendarDate(todayKabul(),calendar);
   const [from,setFrom]=useState(today), [to,setTo]=useState(today);
   const [result,setResult]=useState<{data:GroupedReport;from:string;to:string}|null>(null);
-  const [busy,setBusy]=useState(false), [error,setError]=useState(''); const running=useRef(false);
+  const [busy,setBusy]=useState(false), [error,setError]=useState(''), [message,setMessage]=useState(''); const running=useRef(false);
   const submit=async(e:React.FormEvent)=>{
-    e.preventDefault(); if(running.current)return; setResult(null); setError('');
+    e.preventDefault(); if(running.current)return; setResult(null); setError(''); setMessage('');
     const start=parseCalendarDate(from,calendar),end=parseCalendarDate(to,calendar);
     if(!start || !end){setError('تاریخ آغاز و پایان معتبر وارد کنید.');return;}
     if(start>end){setError('تاریخ آغاز نباید پس از تاریخ پایان باشد.');return;}
@@ -189,14 +189,20 @@ function GroupedReports({calendar}:{calendar:Calendar}) {
     try {setResult({data:await store.groupedReport(start,end),from:start,to:end});}
     catch(e){setError(String(e).replace(/^Error: /,''));} finally {running.current=false;setBusy(false);}
   };
+  const exportCsv=async()=>{
+    if(!result || running.current)return; running.current=true;setBusy(true);setError('');setMessage('');
+    try {if(await exportGroupedCsv(result.from,result.to,result.data)) setMessage('فایل CSV ساخته شد.');}
+    catch(e){setError(String(e).replace(/^Error: /,''));} finally {running.current=false;setBusy(false);}
+  };
   const expenseTable=(title:string,rows:ExpenseGroup[]) => <section aria-label={title}><div className="panel-head"><h2>{title}</h2></div><div className="table-wrap"><table><thead><tr><th>عنوان ثبت‌شده</th><th>تعداد</th><th>افغانی</th><th>دالر</th></tr></thead><tbody>{rows.map(row=><tr key={row.label}><td className="details-text">{row.label || <i>ثبت نشده (خالی)</i>}</td><td dir="ltr">{row.count}</td><td dir="ltr">{displayMoney(row.afn)}</td><td dir="ltr">{displayMoney(row.usd)}</td></tr>)}</tbody></table>{!rows.length && <div className="empty">رکوردی در این بازه وجود ندارد.</div>}</div></section>;
   return <section className="panel listing"><div className="panel-head"><div><h2>راپور تفکیکی آزمایشی</h2><p>گروه‌بندی تمام فروش‌ها و مصارف بازه، شامل هر دو روز آغاز و پایان.</p></div></div>
-    <form onSubmit={submit}><div className="expense-filters"><Field label={`از تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`} required><input required disabled={busy} dir="ltr" value={from} onChange={e=>{setFrom(e.target.value);setResult(null);setError('');}}/></Field><Field label={`تا تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`} required><input required disabled={busy} dir="ltr" value={to} onChange={e=>{setTo(e.target.value);setResult(null);setError('');}}/></Field></div><div className="expense-feedback"><button className="btn primary" disabled={busy} type="submit">{busy?'در حال محاسبه...':'محاسبهٔ راپور تفکیکی'}</button></div></form>
-    {error && <div className="error expense-feedback" role="alert">{error}</div>}
+    <form onSubmit={submit}><div className="expense-filters"><Field label={`از تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`} required><input required disabled={busy} dir="ltr" value={from} onChange={e=>{setFrom(e.target.value);setResult(null);setError('');setMessage('');}}/></Field><Field label={`تا تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`} required><input required disabled={busy} dir="ltr" value={to} onChange={e=>{setTo(e.target.value);setResult(null);setError('');setMessage('');}}/></Field></div><div className="expense-feedback"><button className="btn primary" disabled={busy} type="submit">{busy?'در حال محاسبه...':'محاسبهٔ راپور تفکیکی'}</button></div></form>
+    {error && <div className="error expense-feedback" role="alert">{error}</div>}{message && <div className="notice expense-feedback" role="status">{message}</div>}
     {result && <><div className="form-hint">نتیجه از {displayCalendarDate(result.from,calendar)} تا {displayCalendarDate(result.to,calendar)}؛ برای اطلاعات تازه دوباره محاسبه کنید.</div>
       <section aria-label="فروش بر اساس مواد"><div className="panel-head"><h2>فروش بر اساس مواد</h2></div><div className="table-wrap"><table><thead><tr><th>مواد</th><th>تعداد</th><th>متراژ (متر مکعب)</th><th>جمع (افغانی)</th><th>نقده (افغانی)</th><th>باقی (افغانی)</th></tr></thead><tbody>{result.data.materials.map(row=><tr key={row.material}><td className="details-text">{row.material}</td><td dir="ltr">{row.count}</td><td dir="ltr">{row.volume}</td><td dir="ltr">{displayMoney(row.total)}</td><td dir="ltr">{displayMoney(row.cash)}</td><td dir="ltr">{displayMoney(row.credit)}</td></tr>)}</tbody></table>{!result.data.materials.length && <div className="empty">فروشی در این بازه وجود ندارد.</div>}</div></section>
-      {expenseTable('مصارف بر اساس نوع',result.data.expense_types)}{expenseTable('مصارف بر اساس پرداخت‌کننده',result.data.payers)}</>}
-    <div className="form-hint">گروه‌بندی بر اساس متن دقیق ذخیره‌شده است، نه شناسهٔ فهرست‌های سیستم قبلی؛ تفاوت املایی، فاصله یا حروف گروه جدا می‌سازد. عنوان خالی جداگانه نمایش می‌شود. مصارف نقده و باقی هر دو شامل‌اند و افغانی و دالر تبدیل یا جمع نمی‌شوند. این ارقام موجودی دخل یا سود نیستند؛ نوع پرداخت‌کننده، چاپ و CSV این راپور هنوز پیاده‌سازی نشده‌اند. تطبیق با حسابدار لازم است.</div>
+      {expenseTable('مصارف بر اساس نوع',result.data.expense_types)}{expenseTable('مصارف بر اساس پرداخت‌کننده',result.data.payers)}
+      <div className="expense-feedback"><button type="button" className="btn secondary" disabled={!inDesktop || busy} onClick={exportCsv}>خروجی CSV تفکیکی</button> <span className="form-hint">{inDesktop ? 'فایل جدید و بدون رمزگذاری است؛ اگر گروه‌ها تغییر کنند ابتدا دوباره محاسبه کنید.' : 'خروجی فایل در پیش‌نمایش مرورگر فعال نیست.'}</span></div></>}
+    <div className="form-hint">گروه‌بندی بر اساس متن دقیق ذخیره‌شده است، نه شناسهٔ فهرست‌های سیستم قبلی؛ تفاوت املایی، فاصله یا حروف گروه جدا می‌سازد. عنوان خالی جداگانه نمایش می‌شود. مصارف نقده و باقی هر دو شامل‌اند و افغانی و دالر تبدیل یا جمع نمی‌شوند. این ارقام موجودی دخل یا سود نیستند؛ نوع پرداخت‌کننده و چاپ این راپور هنوز پیاده‌سازی نشده‌اند. برای کاهش خطر فرمول، عنوان‌های غیرخالی در متن خام CSV با تک‌نقل‌قول آغاز می‌شوند؛ این روش در همهٔ برنامه‌ها تضمین‌شده نیست. تطبیق با حسابدار لازم است.</div>
   </section>;
 }
 

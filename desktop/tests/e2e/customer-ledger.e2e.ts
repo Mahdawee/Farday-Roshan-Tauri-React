@@ -544,6 +544,7 @@ test('grouped report uses both dates, exact labels, and separate currencies',asy
   const materials=page.getByRole('region',{name:'فروش بر اساس مواد'}); const materialRow=materials.getByRole('row').filter({hasText:'ریگ'});
   await expect(materialRow).toContainText('2'); await expect(materialRow).toContainText('2.000'); await expect(materialRow).toContainText('30'); await expect(materials).not.toContainText('خاک');
   const types=page.getByRole('region',{name:'مصارف بر اساس نوع'}); await expect(types.getByRole('row').filter({hasText:'تیل'})).toContainText('3.65'); await expect(types.getByRole('row').filter({hasText:'تیل'}).getByRole('cell').nth(2)).toHaveText('2');
+  await expect(page.getByRole('button',{name:'خروجی CSV تفکیکی'})).toBeDisabled(); await expect(page.getByText('خروجی فایل در پیش‌نمایش مرورگر فعال نیست.')).toBeVisible();
   const payers=page.getByRole('region',{name:'مصارف بر اساس پرداخت‌کننده'}); await expect(payers).toContainText('ثبت نشده (خالی)'); await expect(payers).toContainText('0.25');
   await page.getByLabel('از تاریخ (میلادی)').fill('2025/03/23'); await expect(materials).toHaveCount(0);
   await page.getByRole('button',{name:'محاسبهٔ راپور تفکیکی'}).click(); await expect(page.getByRole('alert')).toContainText('تاریخ آغاز');
