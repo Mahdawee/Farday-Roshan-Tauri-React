@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePoolOptions}, Row, SqlitePool};
+use sqlx::{sqlite::{SqliteConnectOptions, SqlitePoolOptions}, Row, SqlitePool, SqliteConnection};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -9,9 +9,40 @@ const MAX: i128 = 1_000_000_000_000;
 #[derive(Deserialize)]
 pub(crate) struct CustomerInput { code: String, name: String, phone: String, opening: String }
 #[derive(Deserialize)]
-pub(crate) struct SaleInput { customer_id: String, date: String, material: String, volume: String, unit_price: String, freight: String, payment_type: String }
+pub(crate) struct SaleInput { customer_id: String, date: String, material: String, volume: String, unit_price: String, freight: String, payment_type: String, #[serde(default)] details: SaleDetails }
 #[derive(Deserialize)]
-pub(crate) struct ReceiptInput { customer_id: String, date: String, amount: String, source: String }
+pub(crate) struct ReceiptInput { customer_id: String, date: String, amount: String, source: String, #[serde(default)] details: ReceiptDetails }
+#[derive(Deserialize, Serialize, Clone, Default, PartialEq, Eq, Debug)]
+#[serde(default)]
+pub(crate) struct SaleDetails { pub(crate) bill_no:String, pub(crate) driver_name:String, pub(crate) vehicle_plate:String, pub(crate) destination:String, pub(crate) notes:String }
+#[derive(Deserialize, Serialize, Clone, Default, PartialEq, Eq, Debug)]
+#[serde(default)]
+pub(crate) struct ReceiptDetails { pub(crate) related_bill_no:String, pub(crate) received_by:String, pub(crate) notes:String }
+fn text(value:&str,limit:usize)->Result<String,String> {
+    let value=value.trim(); if value.len()>limit {return Err("متن واردشده بیش از حد طولانی است.".into());} Ok(value.into())
+}
+impl SaleDetails {
+    fn normalized(&self)->Result<Self,String> { Ok(Self {bill_no:text(&self.bill_no,160)?,driver_name:text(&self.driver_name,320)?,vehicle_plate:text(&self.vehicle_plate,160)?,destination:text(&self.destination,320)?,notes:text(&self.notes,4000)?}) }
+}
+impl ReceiptDetails {
+    fn normalized(&self)->Result<Self,String> { Ok(Self {related_bill_no:text(&self.related_bill_no,160)?,received_by:text(&self.received_by,320)?,notes:text(&self.notes,4000)?}) }
+}
+async fn sale_details(db:&mut SqliteConnection,id:&str)->Result<SaleDetails,String> {
+    let row=sqlx::query("SELECT bill_no,driver_name,vehicle_plate,destination,notes FROM sale_details WHERE sale_id=?").bind(id).fetch_optional(db).await.map_err(db_error)?;
+    match row { Some(r)=>Ok(SaleDetails {bill_no:r.try_get(0).map_err(db_error)?,driver_name:r.try_get(1).map_err(db_error)?,vehicle_plate:r.try_get(2).map_err(db_error)?,destination:r.try_get(3).map_err(db_error)?,notes:r.try_get(4).map_err(db_error)?}),None=>Ok(SaleDetails::default()) }
+}
+async fn receipt_details(db:&mut SqliteConnection,id:&str)->Result<ReceiptDetails,String> {
+    let row=sqlx::query("SELECT related_bill_no,received_by,notes FROM receipt_details WHERE receipt_id=?").bind(id).fetch_optional(db).await.map_err(db_error)?;
+    match row { Some(r)=>Ok(ReceiptDetails {related_bill_no:r.try_get(0).map_err(db_error)?,received_by:r.try_get(1).map_err(db_error)?,notes:r.try_get(2).map_err(db_error)?}),None=>Ok(ReceiptDetails::default()) }
+}
+async fn write_sale_details(db:&mut SqliteConnection,id:&str,d:&SaleDetails)->Result<(),String> {
+    sqlx::query("INSERT INTO sale_details(sale_id,bill_no,driver_name,vehicle_plate,destination,notes) VALUES(?,?,?,?,?,?) ON CONFLICT(sale_id) DO UPDATE SET bill_no=excluded.bill_no,driver_name=excluded.driver_name,vehicle_plate=excluded.vehicle_plate,destination=excluded.destination,notes=excluded.notes")
+        .bind(id).bind(&d.bill_no).bind(&d.driver_name).bind(&d.vehicle_plate).bind(&d.destination).bind(&d.notes).execute(db).await.map_err(db_error)?; Ok(())
+}
+async fn write_receipt_details(db:&mut SqliteConnection,id:&str,d:&ReceiptDetails)->Result<(),String> {
+    sqlx::query("INSERT INTO receipt_details(receipt_id,related_bill_no,received_by,notes) VALUES(?,?,?,?) ON CONFLICT(receipt_id) DO UPDATE SET related_bill_no=excluded.related_bill_no,received_by=excluded.received_by,notes=excluded.notes")
+        .bind(id).bind(&d.related_bill_no).bind(&d.received_by).bind(&d.notes).execute(db).await.map_err(db_error)?; Ok(())
+}
 #[derive(Serialize)]
 struct Customer { id: String, code: String, name: String, phone: String, opening: String, balance: String }
 #[derive(Serialize)]
@@ -107,33 +138,41 @@ fn validate_receipt(input: &ReceiptInput) -> Result<i64, String> {
     Ok(amount)
 }
 pub(crate) async fn add_sale(db: &SqlitePool, input: SaleInput) -> Result<(), String> {
-    let (volume, price, freight, total) = validate_sale(&input)?;
+    let (volume, price, freight, total) = validate_sale(&input)?; let details=input.details.normalized()?; let id=Uuid::new_v4().to_string();
+    let mut tx=db.begin().await.map_err(db_error)?;
     sqlx::query("INSERT INTO sales (id, customer_id, sale_date, material, volume_milli, unit_price_cents, freight_cents, total_cents, payment_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(Uuid::new_v4().to_string()).bind(input.customer_id).bind(input.date).bind(input.material.trim()).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type)
-        .execute(db).await.map_err(db_error)?;
-    Ok(())
+        .bind(&id).bind(input.customer_id).bind(input.date).bind(input.material.trim()).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type)
+        .execute(&mut *tx).await.map_err(db_error)?;
+    write_sale_details(&mut tx,&id,&details).await?; tx.commit().await.map_err(db_error)?; Ok(())
 }
 pub(crate) async fn add_receipt(db: &SqlitePool, input: ReceiptInput) -> Result<(), String> {
-    let amount=validate_receipt(&input)?;
+    let amount=validate_receipt(&input)?; let details=input.details.normalized()?; let id=Uuid::new_v4().to_string(); let mut tx=db.begin().await.map_err(db_error)?;
     sqlx::query("INSERT INTO receipts (id, customer_id, receipt_date, amount_cents, source) VALUES (?, ?, ?, ?, ?)")
-        .bind(Uuid::new_v4().to_string()).bind(input.customer_id).bind(input.date).bind(amount).bind(input.source)
-        .execute(db).await.map_err(db_error)?;
-    Ok(())
+        .bind(&id).bind(input.customer_id).bind(input.date).bind(amount).bind(input.source).execute(&mut *tx).await.map_err(db_error)?;
+    write_receipt_details(&mut tx,&id,&details).await?; tx.commit().await.map_err(db_error)?; Ok(())
 }
-/// Compare every stored business field in one UPDATE. An old form cannot overwrite a newer edit.
+/// A write lock protects comparison of both the base row and supplemental fields.
 pub(crate) async fn update_sale(db: &SqlitePool, id: String, input: SaleInput, expected: SaleInput) -> Result<(), String> {
     let (volume,price,freight,total)=validate_sale(&input)?;
     let (old_volume,old_price,old_freight,old_total)=validate_sale(&expected)?;
+    let details=input.details.normalized()?; let old_details=expected.details.clone();
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    if sale_details(&mut tx,&id).await? != old_details { return Err("فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
     let n=sqlx::query("UPDATE sales SET customer_id=?,sale_date=?,material=?,volume_milli=?,unit_price_cents=?,freight_cents=?,total_cents=?,payment_type=? WHERE id=? AND customer_id=? AND sale_date=? AND material=? AND volume_milli=? AND unit_price_cents=? AND freight_cents=? AND total_cents=? AND payment_type=?")
-        .bind(input.customer_id).bind(input.date).bind(input.material.trim()).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type).bind(id)
-        .bind(expected.customer_id).bind(expected.date).bind(expected.material.trim()).bind(old_volume).bind(old_price).bind(old_freight).bind(old_total).bind(expected.payment_type).execute(db).await.map_err(db_error)?.rows_affected();
-    if n==0 { return Err("فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); } Ok(())
+        .bind(input.customer_id).bind(input.date).bind(input.material.trim()).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type).bind(&id)
+        .bind(expected.customer_id).bind(expected.date).bind(expected.material.trim()).bind(old_volume).bind(old_price).bind(old_freight).bind(old_total).bind(expected.payment_type).execute(&mut *tx).await.map_err(db_error)?.rows_affected();
+    if n==0 { return Err("فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
+    write_sale_details(&mut tx,&id,&details).await?; tx.commit().await.map_err(db_error)?; Ok(())
 }
 pub(crate) async fn update_receipt(db: &SqlitePool, id: String, input: ReceiptInput, expected: ReceiptInput) -> Result<(), String> {
     let amount=validate_receipt(&input)?; let old_amount=validate_receipt(&expected)?;
+    let details=input.details.normalized()?; let old_details=expected.details.clone();
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    if receipt_details(&mut tx,&id).await? != old_details { return Err("رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
     let n=sqlx::query("UPDATE receipts SET customer_id=?,receipt_date=?,amount_cents=?,source=? WHERE id=? AND customer_id=? AND receipt_date=? AND amount_cents=? AND source=?")
-        .bind(input.customer_id).bind(input.date).bind(amount).bind(input.source).bind(id).bind(expected.customer_id).bind(expected.date).bind(old_amount).bind(expected.source).execute(db).await.map_err(db_error)?.rows_affected();
-    if n==0 { return Err("رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); } Ok(())
+        .bind(input.customer_id).bind(input.date).bind(amount).bind(input.source).bind(&id).bind(expected.customer_id).bind(expected.date).bind(old_amount).bind(expected.source).execute(&mut *tx).await.map_err(db_error)?.rows_affected();
+    if n==0 { return Err("رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
+    write_receipt_details(&mut tx,&id,&details).await?; tx.commit().await.map_err(db_error)?; Ok(())
 }
 
 pub(crate) async fn snapshot(db: &SqlitePool) -> Result<Snapshot, String> {
@@ -270,12 +309,12 @@ mod tests {
         assert!(add_customer(&db, CustomerInput { code: "c-1".into(), name: "دوباره".into(), phone: "".into(), opening: "0".into() }).await.is_err());
         let first = snapshot(&db).await.unwrap();
         let id = first.customers[0].id.clone();
-        add_sale(&db, SaleInput { customer_id: id.clone(), date: "2026-01-01".into(), material: "ریگ".into(), volume: "10".into(), unit_price: "500".into(), freight: "300".into(), payment_type: "credit".into() }).await.unwrap();
-        add_sale(&db, SaleInput { customer_id: id.clone(), date: "2026-01-02".into(), material: "ریگ".into(), volume: "1".into(), unit_price: "50".into(), freight: "0".into(), payment_type: "cash".into() }).await.unwrap();
+        add_sale(&db, SaleInput { customer_id: id.clone(), date: "2026-01-01".into(), material: "ریگ".into(), volume: "10".into(), unit_price: "500".into(), freight: "300".into(), payment_type: "credit".into(), details:SaleDetails::default() }).await.unwrap();
+        add_sale(&db, SaleInput { customer_id: id.clone(), date: "2026-01-02".into(), material: "ریگ".into(), volume: "1".into(), unit_price: "50".into(), freight: "0".into(), payment_type: "cash".into(), details:SaleDetails::default() }).await.unwrap();
         for (date, amount, source) in [("2026-01-03", "1000", "debt"), ("2026-01-04", "500", "deposit")] {
-            add_receipt(&db, ReceiptInput { customer_id: id.clone(), date: date.into(), amount: amount.into(), source: source.into() }).await.unwrap();
+            add_receipt(&db, ReceiptInput { customer_id: id.clone(), date: date.into(), amount: amount.into(), source: source.into(), details:ReceiptDetails::default() }).await.unwrap();
         }
-        assert!(add_receipt(&db, ReceiptInput { customer_id: "missing".into(), date: "2026-01-05".into(), amount: "1".into(), source: "debt".into() }).await.is_err());
+        assert!(add_receipt(&db, ReceiptInput { customer_id: "missing".into(), date: "2026-01-05".into(), amount: "1".into(), source: "debt".into(), details:ReceiptDetails::default() }).await.is_err());
         db.close().await;
         let db = open_database(path.clone()).await.unwrap();
         let snapshot = snapshot(&db).await.unwrap();
@@ -320,7 +359,7 @@ mod tests {
         add_customer(&db, CustomerInput { code: "C-1".into(), name: "مشتری".into(), phone: "".into(), opening: "100".into() }).await.unwrap();
         add_customer(&db, CustomerInput { code: "C-2".into(), name: "دوم".into(), phone: "".into(), opening: "0".into() }).await.unwrap();
         let customer = snapshot(&db).await.unwrap().customers.into_iter().find(|c| c.code == "C-1").unwrap();
-        add_sale(&db, SaleInput { customer_id: customer.id.clone(), date: "2026-01-01".into(), material: "ریگ".into(), volume: "1".into(), unit_price: "500".into(), freight: "0".into(), payment_type: "credit".into() }).await.unwrap();
+        add_sale(&db, SaleInput { customer_id: customer.id.clone(), date: "2026-01-01".into(), material: "ریگ".into(), volume: "1".into(), unit_price: "500".into(), freight: "0".into(), payment_type: "credit".into(), details:SaleDetails::default() }).await.unwrap();
         assert!(update_customer(&db, customer.id.clone(), CustomerInput { code: "c-2".into(), name: "نام".into(), phone: "".into(), opening: "200".into() }).await.is_err());
         update_customer(&db, customer.id.clone(), CustomerInput { code: "C-1".into(), name: "ویرایش".into(), phone: "0700".into(), opening: "200".into() }).await.unwrap();
         let ledger = customer_ledger(&db, customer.id).await.unwrap();
@@ -333,19 +372,46 @@ mod tests {
     async fn edits_recalculate_balances_and_reject_stale_forms() {
         let path=std::env::temp_dir().join(format!("transaction-edit-{}.sqlite3",Uuid::new_v4())); let db=open_database(path.clone()).await.unwrap();
         sqlx::query("INSERT INTO customers(id,code,name,opening_cents) VALUES('c1','C1','اول',10000),('c2','C2','دوم',0)").execute(&db).await.unwrap();
-        let sale=|| SaleInput {customer_id:"c1".into(),date:"2026-01-01".into(),material:"ریگ".into(),volume:"1.000".into(),unit_price:"200".into(),freight:"0".into(),payment_type:"credit".into()};
+        let sale=|| SaleInput {customer_id:"c1".into(),date:"2026-01-01".into(),material:"ریگ".into(),volume:"1.000".into(),unit_price:"200".into(),freight:"0".into(),payment_type:"credit".into(),details:SaleDetails::default()};
         sqlx::query("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c1','2026-01-01','ریگ',1000,20000,0,20000,'credit')").execute(&db).await.unwrap();
         let mut updated=sale(); updated.customer_id="c2".into(); updated.unit_price="300".into();
         update_sale(&db,"s".into(),updated,sale()).await.unwrap();
         assert!(update_sale(&db,"s".into(),sale(),sale()).await.is_err());
         assert_eq!(customer_ledger(&db,"c1".into()).await.unwrap().balance,"100.00"); assert_eq!(customer_ledger(&db,"c2".into()).await.unwrap().balance,"300.00");
-        let receipt=|| ReceiptInput {customer_id:"c2".into(),date:"2026-01-02".into(),amount:"50".into(),source:"deposit".into()};
+        let receipt=|| ReceiptInput {customer_id:"c2".into(),date:"2026-01-02".into(),amount:"50".into(),source:"deposit".into(),details:ReceiptDetails::default()};
         sqlx::query("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c2','2026-01-02',5000,'deposit')").execute(&db).await.unwrap();
         let mut changed=receipt(); changed.source="debt".into(); update_receipt(&db,"r".into(),changed,receipt()).await.unwrap();
         assert!(update_receipt(&db,"r".into(),receipt(),receipt()).await.is_err()); assert_eq!(customer_ledger(&db,"c2".into()).await.unwrap().balance,"250.00");
         let mut expected=sale(); expected.customer_id="c2".into(); expected.unit_price="300".into();
         let mut bad=sale(); bad.customer_id="missing".into(); assert!(update_sale(&db,"s".into(),bad,expected).await.is_err());
         assert_eq!(customer_ledger(&db,"c2".into()).await.unwrap().balance,"250.00");
+        db.close().await; std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn supplemental_fields_are_atomic_and_stale_forms_do_not_overwrite_them() {
+        let path=std::env::temp_dir().join(format!("details-edit-{}.sqlite3",Uuid::new_v4())); let db=open_database(path.clone()).await.unwrap();
+        sqlx::query("INSERT INTO customers(id,code,name) VALUES('c','C','مشتری')").execute(&db).await.unwrap();
+        let sale=|| SaleInput {customer_id:"c".into(),date:"2025-01-01".into(),material:"ریگ".into(),volume:"1".into(),unit_price:"100".into(),freight:"0".into(),payment_type:"credit".into(),details:SaleDetails::default()};
+        let mut input=sale(); input.details.bill_no=" BL-1 ".into(); input.details.notes="اول\nدوم".into(); add_sale(&db,input).await.unwrap();
+        let id:String=sqlx::query_scalar("SELECT id FROM sales").fetch_one(&db).await.unwrap();
+        let mut expected=sale(); expected.details.bill_no="BL-1".into(); expected.details.notes="اول\nدوم".into();
+        let mut change=sale(); change.details.bill_no="BL-2".into(); change.details.notes="اول\nدوم".into();
+        update_sale(&db,id.clone(),change,expected).await.unwrap();
+        let mut stale=sale(); stale.details.bill_no="BL-1".into(); stale.details.notes="اول\nدوم".into();
+        let mut attempted=sale(); attempted.unit_price="200".into();
+        assert!(update_sale(&db,id.clone(),attempted,stale).await.is_err());
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT total_cents FROM sales WHERE id=?").bind(&id).fetch_one(&db).await.unwrap(),10000);
+        assert_eq!(sqlx::query_scalar::<_,String>("SELECT bill_no FROM sale_details WHERE sale_id=?").bind(&id).fetch_one(&db).await.unwrap(),"BL-2");
+        let mut too_long=sale(); too_long.details.bill_no="الف".repeat(81); assert!(add_sale(&db,too_long).await.is_err());
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM sales").fetch_one(&db).await.unwrap(),1);
+        let receipt=|| ReceiptInput{customer_id:"c".into(),date:"2025-01-01".into(),amount:"20".into(),source:"debt".into(),details:ReceiptDetails::default()};
+        let mut r=receipt(); r.details.received_by="احمد".into(); add_receipt(&db,r).await.unwrap();
+        let rid:String=sqlx::query_scalar("SELECT id FROM receipts").fetch_one(&db).await.unwrap();
+        let mut r_expected=receipt(); r_expected.details.received_by="احمد".into();
+        let mut r_changed=receipt(); r_changed.details.received_by="محمود".into(); update_receipt(&db,rid.clone(),r_changed,r_expected).await.unwrap();
+        let mut stale=receipt(); stale.details.received_by="احمد".into(); assert!(update_receipt(&db,rid.clone(),receipt(),stale).await.is_err());
+        assert_eq!(sqlx::query_scalar::<_,String>("SELECT received_by FROM receipt_details WHERE receipt_id=?").bind(&rid).fetch_one(&db).await.unwrap(),"محمود");
         db.close().await; std::fs::remove_file(path).unwrap();
     }
 

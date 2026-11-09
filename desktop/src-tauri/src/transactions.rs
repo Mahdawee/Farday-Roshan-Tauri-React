@@ -1,7 +1,7 @@
 //! Paged transaction history; the dashboard's 100 mixed entries are not a ledger.
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
-use crate::service::{money, valid_date};
+use crate::service::{money, valid_date, SaleDetails, ReceiptDetails};
 
 const PAGE_SIZE: i64 = 25;
 #[derive(Deserialize)]
@@ -24,11 +24,11 @@ pub(crate) async fn list(db: &SqlitePool, q: TransactionQuery) -> Result<Transac
     }
     // Only these fixed fragments can become SQL; all user values remain parameters.
     let select = match q.kind.as_str() {
-        "sale" => "SELECT s.id, 'sale' AS kind, s.customer_id, s.payment_type AS subtype, s.sale_date AS date, c.name AS customer_name, c.code AS customer_code, s.material || ' · ' || CASE s.payment_type WHEN 'credit' THEN 'باقی' ELSE 'نقده' END AS detail, s.total_cents AS amount, s.created_at AS created_at FROM sales s JOIN customers c ON c.id=s.customer_id",
-        "receipt" => "SELECT r.id, 'receipt' AS kind, r.customer_id, r.source AS subtype, r.receipt_date AS date, c.name AS customer_name, c.code AS customer_code, CASE r.source WHEN 'debt' THEN 'باقی داری' WHEN 'deposit' THEN 'امانت' WHEN 'statement' THEN 'بیانیه' ELSE 'پیش پرداخت' END AS detail, r.amount_cents AS amount, r.created_at AS created_at FROM receipts r JOIN customers c ON c.id=r.customer_id",
+        "sale" => "SELECT s.id, 'sale' AS kind, s.customer_id, s.payment_type AS subtype, s.sale_date AS date, c.name AS customer_name, c.code AS customer_code, s.material || ' · ' || CASE s.payment_type WHEN 'credit' THEN 'باقی' ELSE 'نقده' END AS detail, s.total_cents AS amount, s.created_at AS created_at, COALESCE(d.bill_no,'') || ' ' || COALESCE(d.driver_name,'') || ' ' || COALESCE(d.vehicle_plate,'') || ' ' || COALESCE(d.destination,'') || ' ' || COALESCE(d.notes,'') AS extra_text FROM sales s JOIN customers c ON c.id=s.customer_id LEFT JOIN sale_details d ON d.sale_id=s.id",
+        "receipt" => "SELECT r.id, 'receipt' AS kind, r.customer_id, r.source AS subtype, r.receipt_date AS date, c.name AS customer_name, c.code AS customer_code, CASE r.source WHEN 'debt' THEN 'باقی داری' WHEN 'deposit' THEN 'امانت' WHEN 'statement' THEN 'بیانیه' ELSE 'پیش پرداخت' END AS detail, r.amount_cents AS amount, r.created_at AS created_at, COALESCE(d.related_bill_no,'') || ' ' || COALESCE(d.received_by,'') || ' ' || COALESCE(d.notes,'') AS extra_text FROM receipts r JOIN customers c ON c.id=r.customer_id LEFT JOIN receipt_details d ON d.receipt_id=r.id",
         _ => return Err("نوع عملیات معتبر نیست.".into()),
     };
-    let where_clause = " WHERE (?1 IS NULL OR date >= ?1) AND (?2 IS NULL OR date <= ?2) AND (?4 IS NULL OR customer_id = ?4) AND (?5 IS NULL OR subtype = ?5) AND (instr(lower(customer_name),lower(?3))>0 OR instr(lower(customer_code),lower(?3))>0 OR instr(lower(detail),lower(?3))>0 OR instr(date,?3)>0)";
+    let where_clause = " WHERE (?1 IS NULL OR date >= ?1) AND (?2 IS NULL OR date <= ?2) AND (?4 IS NULL OR customer_id = ?4) AND (?5 IS NULL OR subtype = ?5) AND (instr(lower(customer_name),lower(?3))>0 OR instr(lower(customer_code),lower(?3))>0 OR instr(lower(detail),lower(?3))>0 OR instr(date,?3)>0 OR instr(lower(extra_text),lower(?3))>0)";
     let count_query=format!("WITH records AS ({select}) SELECT COUNT(*) FROM records{where_clause}");
     let rows_query=format!("WITH records AS ({select}) SELECT id,kind,date,customer_name,customer_code,detail,amount FROM records{where_clause} ORDER BY date DESC,created_at DESC,id DESC LIMIT ?6 OFFSET ?7");
     let mut tx=db.begin().await.map_err(error)?;
@@ -67,18 +67,18 @@ mod tests {
 #[derive(Serialize)]
 #[serde(tag="kind", rename_all="snake_case")]
 pub(crate) enum TransactionDetail {
-    Sale { id:String, customer_id:String, date:String, customer_name:String, customer_code:String, material:String, volume:String, unit_price:String, freight:String, total:String, payment_type:String },
-    Receipt { id:String, customer_id:String, date:String, customer_name:String, customer_code:String, amount:String, source:String },
+    Sale { id:String, customer_id:String, date:String, customer_name:String, customer_code:String, material:String, volume:String, unit_price:String, freight:String, total:String, payment_type:String, details:SaleDetails },
+    Receipt { id:String, customer_id:String, date:String, customer_name:String, customer_code:String, amount:String, source:String, details:ReceiptDetails },
 }
 pub(crate) async fn detail(db: &SqlitePool, kind: String, id: String) -> Result<TransactionDetail, String> {
     if id.is_empty() || id.len()>80 { return Err("شناسهٔ عملیات معتبر نیست.".into()); }
     if kind == "sale" {
-        let r=sqlx::query("SELECT s.id,s.customer_id,s.sale_date,c.name AS customer_name,c.code AS customer_code,s.material,s.volume_milli,s.unit_price_cents,s.freight_cents,s.total_cents,s.payment_type FROM sales s JOIN customers c ON c.id=s.customer_id WHERE s.id=?").bind(id).fetch_optional(db).await.map_err(error)?.ok_or("فروش انتخاب‌شده وجود ندارد.")?;
+        let r=sqlx::query("SELECT s.id,s.customer_id,s.sale_date,c.name AS customer_name,c.code AS customer_code,s.material,s.volume_milli,s.unit_price_cents,s.freight_cents,s.total_cents,s.payment_type,COALESCE(d.bill_no,'') AS bill_no,COALESCE(d.driver_name,'') AS driver_name,COALESCE(d.vehicle_plate,'') AS vehicle_plate,COALESCE(d.destination,'') AS destination,COALESCE(d.notes,'') AS notes FROM sales s JOIN customers c ON c.id=s.customer_id LEFT JOIN sale_details d ON d.sale_id=s.id WHERE s.id=?").bind(id).fetch_optional(db).await.map_err(error)?.ok_or("فروش انتخاب‌شده وجود ندارد.")?;
         let volume:i64=r.try_get("volume_milli").map_err(error)?;
-        Ok(TransactionDetail::Sale { id:r.try_get("id").map_err(error)?,customer_id:r.try_get("customer_id").map_err(error)?,date:r.try_get("sale_date").map_err(error)?,customer_name:r.try_get("customer_name").map_err(error)?,customer_code:r.try_get("customer_code").map_err(error)?,material:r.try_get("material").map_err(error)?,volume:format!("{}.{:03}",volume/1000,volume%1000),unit_price:money(r.try_get("unit_price_cents").map_err(error)?),freight:money(r.try_get("freight_cents").map_err(error)?),total:money(r.try_get("total_cents").map_err(error)?),payment_type:r.try_get("payment_type").map_err(error)? })
+        Ok(TransactionDetail::Sale { id:r.try_get("id").map_err(error)?,customer_id:r.try_get("customer_id").map_err(error)?,date:r.try_get("sale_date").map_err(error)?,customer_name:r.try_get("customer_name").map_err(error)?,customer_code:r.try_get("customer_code").map_err(error)?,material:r.try_get("material").map_err(error)?,volume:format!("{}.{:03}",volume/1000,volume%1000),unit_price:money(r.try_get("unit_price_cents").map_err(error)?),freight:money(r.try_get("freight_cents").map_err(error)?),total:money(r.try_get("total_cents").map_err(error)?),payment_type:r.try_get("payment_type").map_err(error)?,details:SaleDetails {bill_no:r.try_get("bill_no").map_err(error)?,driver_name:r.try_get("driver_name").map_err(error)?,vehicle_plate:r.try_get("vehicle_plate").map_err(error)?,destination:r.try_get("destination").map_err(error)?,notes:r.try_get("notes").map_err(error)?} })
     } else if kind == "receipt" {
-        let r=sqlx::query("SELECT r.id,r.customer_id,r.receipt_date,c.name AS customer_name,c.code AS customer_code,r.amount_cents,r.source FROM receipts r JOIN customers c ON c.id=r.customer_id WHERE r.id=?").bind(id).fetch_optional(db).await.map_err(error)?.ok_or("رسید انتخاب‌شده وجود ندارد.")?;
-        Ok(TransactionDetail::Receipt {id:r.try_get("id").map_err(error)?,customer_id:r.try_get("customer_id").map_err(error)?,date:r.try_get("receipt_date").map_err(error)?,customer_name:r.try_get("customer_name").map_err(error)?,customer_code:r.try_get("customer_code").map_err(error)?,amount:money(r.try_get("amount_cents").map_err(error)?),source:r.try_get("source").map_err(error)?})
+        let r=sqlx::query("SELECT r.id,r.customer_id,r.receipt_date,c.name AS customer_name,c.code AS customer_code,r.amount_cents,r.source,COALESCE(d.related_bill_no,'') AS related_bill_no,COALESCE(d.received_by,'') AS received_by,COALESCE(d.notes,'') AS notes FROM receipts r JOIN customers c ON c.id=r.customer_id LEFT JOIN receipt_details d ON d.receipt_id=r.id WHERE r.id=?").bind(id).fetch_optional(db).await.map_err(error)?.ok_or("رسید انتخاب‌شده وجود ندارد.")?;
+        Ok(TransactionDetail::Receipt {id:r.try_get("id").map_err(error)?,customer_id:r.try_get("customer_id").map_err(error)?,date:r.try_get("receipt_date").map_err(error)?,customer_name:r.try_get("customer_name").map_err(error)?,customer_code:r.try_get("customer_code").map_err(error)?,amount:money(r.try_get("amount_cents").map_err(error)?),source:r.try_get("source").map_err(error)?,details:ReceiptDetails {related_bill_no:r.try_get("related_bill_no").map_err(error)?,received_by:r.try_get("received_by").map_err(error)?,notes:r.try_get("notes").map_err(error)?}})
     } else { Err("نوع عملیات معتبر نیست.".into()) }
 }
 #[cfg(test)]

@@ -235,3 +235,23 @@ it('financial summaries reflect edited date, customer and transaction type',asyn
   const old=await s.rangeSummary('2025-01-01','2025-01-31'); expect(old.sales_count).toBe(0); expect(old.receipts_count).toBe(0);
   const latest=await s.rangeSummary('2025-02-01','2025-02-01'); expect(latest.sales_credit).toBe('0.00'); expect(latest.sales_cash).toBe('200.00'); expect(latest.receipts_deposit).toBe('0.00'); expect(latest.receipts_effective).toBe('30.00');
 });
+
+it('retains supplemental fields, searches them, and rejects stale metadata edits',async()=>{
+  const s=createDemoStore(false); await s.addCustomer({code:'C',name:'مشتری',phone:'',opening:'0'}); const c=(await s.snapshot()).customers[0].id;
+  const details={bill_no:' BL-1 ',driver_name:'احمد',vehicle_plate:'123',destination:'کابل',notes:'سطر اول\nسطر دوم'};
+  const sale={customer_id:c,date:'2025-01-01',material:'ریگ',volume:'1',unit_price:'100',freight:'0',payment_type:'credit' as const,details};
+  await s.addSale(sale); const id=(await s.snapshot()).entries[0].id;
+  const original=await s.transactionDetail('sale',id); expect(original.kind).toBe('sale'); if(original.kind!=='sale') throw new Error('wrong kind');
+  expect(original.details.bill_no).toBe('BL-1'); expect(original.details.notes).toBe('سطر اول\nسطر دوم');
+  const query={kind:'sale' as const,page:0,search:'bl-1',from:null,to:null,customer_id:null,subtype:null}; expect((await s.transactions(query)).total).toBe(1);
+  const expected={...sale,details:original.details}; await s.updateSale(id,{...expected,details:{...expected.details,driver_name:'محمود'}},expected);
+  await expect(s.updateSale(id,{...expected,unit_price:'200'},expected)).rejects.toThrow('تغییر کرده');
+  expect((await s.ledger(c)).balance).toBe('100.00');
+  const rec={customer_id:c,date:'2025-01-01',amount:'10',source:'deposit' as const,details:{related_bill_no:'BL-1',received_by:'احمد',notes:'یادداشت'}};
+  await s.addReceipt(rec); const rid=(await s.snapshot()).entries.find(e=>e.kind==='receipt')!.id;
+  await s.updateReceipt(rid,{...rec,details:{...rec.details,received_by:'محمود'}},rec);
+  await expect(s.updateReceipt(rid,rec,rec)).rejects.toThrow('تغییر کرده');
+  expect((await s.transactions({...query,kind:'receipt',search:'محمود'})).total).toBe(1);
+  await expect(s.addSale({...sale,details:{...details,bill_no:'الف'.repeat(81)}})).rejects.toThrow();
+  expect((await s.ledger(c)).balance).toBe('100.00');
+});

@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { normalizeDateDigits } from './calendar';
-import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary } from './domain';
+import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary, SaleDetails, ReceiptDetails } from './domain';
 
 const tauriStore: Store = {
   rangeSummary: (from,to) => invoke<RangeSummary>('range_summary', {from,to}),
@@ -36,7 +36,7 @@ export function createDemoStore(seed = true): Store {
   const attendance: Attendance[] = [];
   const salaries: Salary[] = [];
   const expenses: Expense[] = [];
-  type DemoEntry = Entry & { customer_id: string; affects_balance: boolean; subtype: string; sale?: { material:string; volume:string; unit_price:string; freight:string } };
+  type DemoEntry = Entry & { customer_id: string; affects_balance: boolean; subtype: string; sale?: { material:string; volume:string; unit_price:string; freight:string; details?:SaleDetails }; receiptDetails?:ReceiptDetails };
   const entries: DemoEntry[] = [
     { id: 'demo-e1', customer_id: 'demo-1', subtype: 'credit', sale: {material:'ماسه اول',volume:'90.000',unit_price:'600.00',freight:'0.00'}, affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
     { id: 'demo-e2', customer_id: 'demo-1', subtype: 'debt', affects_balance: true, kind: 'receipt', date: '2026-11-07', customer_name: 'شرکت ساختمانی امید', detail: 'باقی داری', amount: '12000.00' },
@@ -50,6 +50,9 @@ export function createDemoStore(seed = true): Store {
     const amount = BigInt(whole) * 100n + BigInt((fraction ?? '').padEnd(2, '0'));
     return negative ? -amount : amount;
   };
+  const text=(value:string, limit:number) => { const v=value.trim(); if (new TextEncoder().encode(v).length>limit) throw new Error('متن واردشده بیش از حد طولانی است.'); return v; };
+  const saleDetails=(d?:SaleDetails):SaleDetails => ({bill_no:text(d?.bill_no ?? '',160),driver_name:text(d?.driver_name ?? '',320),vehicle_plate:text(d?.vehicle_plate ?? '',160),destination:text(d?.destination ?? '',320),notes:text(d?.notes ?? '',4000)});
+  const receiptDetails=(d?:ReceiptDetails):ReceiptDetails => ({related_bill_no:text(d?.related_bill_no ?? '',160),received_by:text(d?.received_by ?? '',320),notes:text(d?.notes ?? '',4000)});
   const update = (id: string, amount: bigint) => {
     const c = customers.find(x => x.id === id);
     if (!c) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
@@ -89,15 +92,15 @@ export function createDemoStore(seed = true): Store {
       if (query.from && query.to && query.from>query.to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
       const lowerAscii=(text:string)=>text.replace(/[A-Z]/g,c=>c.toLowerCase());
       const search=lowerAscii(query.search.trim());
-      const rows=entries.filter(e=>e.kind===query.kind && (!query.customer_id || e.customer_id===query.customer_id) && (!query.subtype || e.subtype===query.subtype) && (!query.from || e.date>=query.from) && (!query.to || e.date<=query.to)).map(e=>({...e,customer_code:customers.find(c=>c.id===e.customer_id)?.code || ''})).filter(e=>[e.customer_name,e.customer_code,e.detail,e.date].some(s=>lowerAscii(s).includes(search))).sort((a,b)=>b.date.localeCompare(a.date));
+      const rows=entries.filter(e=>e.kind===query.kind && (!query.customer_id || e.customer_id===query.customer_id) && (!query.subtype || e.subtype===query.subtype) && (!query.from || e.date>=query.from) && (!query.to || e.date<=query.to)).map(e=>({...e,customer_code:customers.find(c=>c.id===e.customer_id)?.code || ''})).filter(e=>[e.customer_name,e.customer_code,e.detail,e.date,Object.values(e.kind==='sale'?saleDetails(e.sale?.details):receiptDetails(e.receiptDetails)).join(' ')].some(s=>lowerAscii(s).includes(search))).sort((a,b)=>b.date.localeCompare(a.date));
       return structuredClone({ rows:rows.slice(query.page*25,query.page*25+25), total:rows.length, page:query.page, page_size:25 });
     },
     async transactionDetail(kind,id) {
       const entry=entries.find(e=>e.kind===kind && e.id===id); if (!entry) throw new Error('عملیات انتخاب‌شده وجود ندارد.');
       const customer=customers.find(c=>c.id===entry.customer_id); if (!customer) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
       const common={id:entry.id,customer_id:customer.id,date:entry.date,customer_name:customer.name,customer_code:customer.code};
-      if (kind==='sale' && entry.sale) return structuredClone({kind:'sale',...common,...entry.sale,total:entry.amount,payment_type:entry.subtype as 'cash' | 'credit'});
-      if (kind==='receipt') return structuredClone({kind:'receipt',...common,amount:entry.amount,source:entry.subtype as ReceiptInput['source']});
+      if (kind==='sale' && entry.sale) return structuredClone({kind:'sale',...common,...entry.sale,details:saleDetails(entry.sale.details),total:entry.amount,payment_type:entry.subtype as 'cash' | 'credit'});
+      if (kind==='receipt') return structuredClone({kind:'receipt',...common,amount:entry.amount,source:entry.subtype as ReceiptInput['source'],details:receiptDetails(entry.receiptDetails)});
       throw new Error('نوع عملیات معتبر نیست.');
     },
     async attendance() {
@@ -211,44 +214,46 @@ export function createDemoStore(seed = true): Store {
     },
     async addSale(input) {
       validateDate(input.date);
-      if (!input.material.trim()) throw new Error('نوع مواد الزامی است.');
+      if (!input.material.trim() || new TextEncoder().encode(input.material.trim()).length>200 || !['cash','credit'].includes(input.payment_type)) throw new Error('معلومات فروش معتبر نیست.');
+      const details=saleDetails(input.details);
       const total = saleTotal(input.volume, input.unit_price, input.freight);
       const c = update(input.customer_id, input.payment_type === 'credit' ? total : 0n);
       if (input.payment_type === 'credit') credit += total;
-      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.payment_type, sale: {material:input.material.trim(),volume:formatScaled(parseScaled(input.volume,3),3),unit_price:formatScaled(parseScaled(input.unit_price,2)),freight:formatScaled(parseScaled(input.freight,2))}, affects_balance: input.payment_type === 'credit', kind: 'sale', date: input.date, customer_name: c.name, detail: `${input.material} · ${input.payment_type === 'credit' ? 'باقی' : 'نقده'}`, amount: formatScaled(total) });
+      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.payment_type, sale: {material:input.material.trim(),volume:formatScaled(parseScaled(input.volume,3),3),unit_price:formatScaled(parseScaled(input.unit_price,2)),freight:formatScaled(parseScaled(input.freight,2)),details}, affects_balance: input.payment_type === 'credit', kind: 'sale', date: input.date, customer_name: c.name, detail: `${input.material} · ${input.payment_type === 'credit' ? 'باقی' : 'نقده'}`, amount: formatScaled(total) });
     },
     async updateSale(id, input, expected) {
       const validate=(s: SaleInput) => { validateDate(s.date); if (!s.material.trim() || new TextEncoder().encode(s.material.trim()).length>200 || !['cash','credit'].includes(s.payment_type)) throw new Error('معلومات فروش معتبر نیست.'); return saleTotal(s.volume,s.unit_price,s.freight); };
-      const total=validate(input), oldTotal=validate(expected);
+      const total=validate(input), oldTotal=validate(expected); const details=saleDetails(input.details), oldDetails=saleDetails(expected.details);
       const entry=entries.find(e=>e.id===id && e.kind==='sale');
       const original=entry?.sale;
-      if (!entry || !original || entry.customer_id!==expected.customer_id || entry.date!==expected.date || entry.subtype!==expected.payment_type || original.material!==expected.material.trim() || parseScaled(original.volume,3)!==parseScaled(expected.volume,3) || parseScaled(original.unit_price,2)!==parseScaled(expected.unit_price,2) || parseScaled(original.freight,2)!==parseScaled(expected.freight,2) || storedCents(entry.amount)!==oldTotal) throw new Error('فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.');
+      if (!entry || !original || entry.customer_id!==expected.customer_id || entry.date!==expected.date || entry.subtype!==expected.payment_type || original.material!==expected.material.trim() || parseScaled(original.volume,3)!==parseScaled(expected.volume,3) || parseScaled(original.unit_price,2)!==parseScaled(expected.unit_price,2) || parseScaled(original.freight,2)!==parseScaled(expected.freight,2) || storedCents(entry.amount)!==oldTotal || JSON.stringify(saleDetails(original.details))!==JSON.stringify(oldDetails)) throw new Error('فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.');
       if (!customers.some(c=>c.id===input.customer_id)) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
       if (entry.subtype==='credit') { update(entry.customer_id,-oldTotal); credit-=oldTotal; }
       if (input.payment_type==='credit') { update(input.customer_id,total); credit+=total; }
       const c=customers.find(c=>c.id===input.customer_id)!;
-      Object.assign(entry,{customer_id:c.id,customer_name:c.name,date:input.date,subtype:input.payment_type,affects_balance:input.payment_type==='credit',detail:`${input.material.trim()} · ${input.payment_type==='credit' ? 'باقی' : 'نقده'}`,amount:formatScaled(total),sale:{material:input.material.trim(),volume:formatScaled(parseScaled(input.volume,3),3),unit_price:formatScaled(parseScaled(input.unit_price,2)),freight:formatScaled(parseScaled(input.freight,2))}});
+      Object.assign(entry,{customer_id:c.id,customer_name:c.name,date:input.date,subtype:input.payment_type,affects_balance:input.payment_type==='credit',detail:`${input.material.trim()} · ${input.payment_type==='credit' ? 'باقی' : 'نقده'}`,amount:formatScaled(total),sale:{material:input.material.trim(),volume:formatScaled(parseScaled(input.volume,3),3),unit_price:formatScaled(parseScaled(input.unit_price,2)),freight:formatScaled(parseScaled(input.freight,2)),details}});
     },
     async addReceipt(input) {
       validateDate(input.date);
       const amount = parseScaled(input.amount, 2);
-      if (!amount) throw new Error('مبلغ رسید باید بیشتر از صفر باشد.');
+      if (!amount || !['debt','deposit','statement','advance'].includes(input.source)) throw new Error('معلومات رسید معتبر نیست.');
+      const details=receiptDetails(input.details);
       const c = update(input.customer_id, input.source === 'deposit' ? 0n : -amount);
       receipts += amount;
       const labels = { debt: 'باقی داری', deposit: 'امانت', statement: 'بیانیه', advance: 'پیش پرداخت' };
-      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.source, affects_balance: input.source !== 'deposit', kind: 'receipt', date: input.date, customer_name: c.name, detail: labels[input.source], amount: formatScaled(amount) });
+      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.source, affects_balance: input.source !== 'deposit', kind: 'receipt', date: input.date, customer_name: c.name, detail: labels[input.source], amount: formatScaled(amount), receiptDetails:details });
     },
     async updateReceipt(id, input, expected) {
       const validate=(r: ReceiptInput) => { validateDate(r.date); const amount=parseScaled(r.amount,2); if (!amount || !['debt','deposit','statement','advance'].includes(r.source)) throw new Error('معلومات رسید معتبر نیست.'); return amount; };
-      const amount=validate(input), oldAmount=validate(expected);
+      const amount=validate(input), oldAmount=validate(expected); const details=receiptDetails(input.details), oldDetails=receiptDetails(expected.details);
       const entry=entries.find(e=>e.id===id && e.kind==='receipt');
-      if (!entry || entry.customer_id!==expected.customer_id || entry.date!==expected.date || entry.subtype!==expected.source || storedCents(entry.amount)!==oldAmount) throw new Error('رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.');
+      if (!entry || entry.customer_id!==expected.customer_id || entry.date!==expected.date || entry.subtype!==expected.source || storedCents(entry.amount)!==oldAmount || JSON.stringify(receiptDetails(entry.receiptDetails))!==JSON.stringify(oldDetails)) throw new Error('رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.');
       if (!customers.some(c=>c.id===input.customer_id)) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
       if (entry.subtype!=='deposit') update(entry.customer_id,oldAmount);
       if (input.source!=='deposit') update(input.customer_id,-amount);
       receipts+=amount-oldAmount;
       const c=customers.find(c=>c.id===input.customer_id)!; const labels={debt:'باقی داری',deposit:'امانت',statement:'بیانیه',advance:'پیش پرداخت'};
-      Object.assign(entry,{customer_id:c.id,customer_name:c.name,date:input.date,subtype:input.source,affects_balance:input.source!=='deposit',detail:labels[input.source],amount:formatScaled(amount)});
+      Object.assign(entry,{customer_id:c.id,customer_name:c.name,date:input.date,subtype:input.source,affects_balance:input.source!=='deposit',detail:labels[input.source],amount:formatScaled(amount),receiptDetails:details});
     },
   };
 }
