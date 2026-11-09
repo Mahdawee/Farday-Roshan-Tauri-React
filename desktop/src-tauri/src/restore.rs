@@ -88,6 +88,18 @@ async fn validate(source: &mut SqliteConnection, target: &mut SqliteConnection) 
     if checks.len() != 1 || checks[0] != "ok" || !sqlx::query("PRAGMA foreign_key_check").fetch_all(&mut *source).await.map_err(error)?.is_empty() {
         return Err("فایل پشتیبان خراب است یا ارتباطات معتبر ندارد.".into());
     }
+    if supplied.len() >= 7 {
+        for table in ["sale_numbers", "receipt_numbers"] {
+            let rows=sqlx::query("SELECT seq,typeof(seq) AS seq_type FROM sqlite_sequence WHERE name=?").bind(table).fetch_all(&mut *source).await.map_err(error)?;
+            if rows.len()>1 { return Err("شمارندهٔ شمارهٔ سند در پشتیبان معتبر نیست.".into()); }
+            let max_number:i64=sqlx::query_scalar(&format!("SELECT COALESCE(MAX(number),0) FROM {table}")).fetch_one(&mut *source).await.map_err(error)?;
+            if let Some(row)=rows.first() {
+                let kind:String=row.try_get("seq_type").map_err(error)?;
+                let seq:i64=row.try_get("seq").map_err(error)?;
+                if kind!="integer" || !(0..=9_000_000_000_000_000).contains(&seq) || seq<max_number { return Err("شمارندهٔ شمارهٔ سند در پشتیبان معتبر نیست.".into()); }
+            } else if max_number != 0 { return Err("شمارندهٔ شمارهٔ سند در پشتیبان معتبر نیست.".into()); }
+        }
+    }
     let customers: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM customers").fetch_one(&mut *source).await.map_err(error)?;
     let sales: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sales").fetch_one(&mut *source).await.map_err(error)?;
     let receipts: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM receipts").fetch_one(&mut *source).await.map_err(error)?;
@@ -643,6 +655,20 @@ mod tests {
         assert_eq!(inspect(&live,old.clone()).await.unwrap().schema_version,6);
         restore(&live,old,base.join("safety")).await.unwrap();
         assert_eq!(sqlx::query_scalar::<_,i64>("SELECT number FROM sale_numbers WHERE sale_id='s'").fetch_one(&live).await.unwrap(),31);
+        live.close().await; std::fs::remove_dir_all(base).unwrap();
+    }
+    #[tokio::test]
+    async fn rejects_backup_with_number_counter_below_issued_number() {
+        let base=std::env::temp_dir().join(format!("farday-number-corrupt-{}",Uuid::new_v4())); std::fs::create_dir(&base).unwrap();
+        let live=open_database(base.join("live.sqlite3")).await.unwrap();
+        sqlx::query("INSERT INTO customers(id,code,name) VALUES('c','C','مشتری')").execute(&live).await.unwrap();
+        sqlx::query("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2025-01-01','ریگ',1000,100,0,100,'cash')").execute(&live).await.unwrap();
+        sqlx::query("INSERT INTO sale_numbers(sale_id) VALUES('s')").execute(&live).await.unwrap();
+        let saved=base.join("backup.sqlite3"); create_backup(&live,saved.clone()).await.unwrap();
+        let source=SqlitePoolOptions::new().connect_with(SqliteConnectOptions::new().filename(&saved)).await.unwrap();
+        sqlx::query("UPDATE sqlite_sequence SET seq=0 WHERE name='sale_numbers'").execute(&source).await.unwrap(); source.close().await;
+        assert!(inspect(&live,saved.clone()).await.is_err()); assert!(restore(&live,saved,base.join("safety")).await.is_err());
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT number FROM sale_numbers").fetch_one(&live).await.unwrap(),1);
         live.close().await; std::fs::remove_dir_all(base).unwrap();
     }
     #[tokio::test]
