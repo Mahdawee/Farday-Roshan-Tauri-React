@@ -97,12 +97,12 @@ describe('salary records', () => {
     const [saved] = await s.salaries(); expect(saved.total).toBe('106.75');
     await s.saveEmployee(id,{...employee,base_salary:'999',name:'نام جدید'});
     expect((await s.salaries())[0]).toMatchObject({base:'100.50',employee_name:'نام جدید'});
-    await s.saveSalary(saved.id,{...salary,fine:'200',payment_type:'transfer'});
+    await s.saveSalary(saved.id,{...salary,fine:'200',payment_type:'transfer'},saved);
     expect((await s.salaries())[0]).toMatchObject({total:'-88.25',period_calendar:'shamsi',payment_type:'transfer'});
     await expect(s.saveSalary(null,{...salary,period_year:3178})).rejects.toThrow();
     await expect(s.saveSalary(null,{...salary,employee_id:'missing'})).rejects.toThrow();
     await expect(s.saveSalary(null,{...salary,pay_date:'2025-02-29'})).rejects.toThrow();
-    await expect(s.saveSalary('missing',salary)).rejects.toThrow();
+    await expect(s.saveSalary('missing',salary,salary)).rejects.toThrow();
   });
 });
 
@@ -327,4 +327,18 @@ it('rejects stale expense edits without losing the winning change',async()=>{
   expect((await s.expenses())[0]).toMatchObject({notes:'جدید',amount_usd:'5.00'});
   const [fresh]=await s.expenses(); await s.saveExpense(fresh.id,{...fresh,amount_usd:'8'},fresh);
   expect((await s.expenses())[0]).toMatchObject({notes:'جدید',amount_usd:'8.00'});
+});
+
+it('rejects stale salary changes while retaining the winning edit and employee snapshot',async()=>{
+  const s=createDemoStore(false); await s.saveEmployee(null,{code:'E',name:'کارمند',father_name:'',job_title:'',hire_date:null,base_salary:'100',phone:'',status:'active'});
+  const employee=(await s.employees())[0];
+  const input={employee_id:employee.id,period_calendar:'shamsi' as const,period_year:1404,period_month:1,pay_date:'2025-03-21',base:'100',bonus:'0',fine:'0',overtime:'0',payer:'',payment_type:'cash' as const,notes:''};
+  await s.saveSalary(null,input); const [old]=await s.salaries();
+  await s.saveSalary(old.id,{...old,notes:'دیگر'},old);
+  await expect(s.saveSalary(old.id,{...old,fine:'200'},old)).rejects.toThrow('تغییر کرده');
+  await expect(s.saveSalary(old.id,input)).rejects.toThrow('نسخهٔ قبلی');
+  expect((await s.salaries())[0]).toMatchObject({notes:'دیگر',total:'100.00'});
+  const [fresh]=await s.salaries(); await s.saveEmployee(employee.id,{...employee,name:'نام جدید',base_salary:'500'});
+  await s.saveSalary(fresh.id,{...fresh,fine:'200'},fresh);
+  expect((await s.salaries())[0]).toMatchObject({notes:'دیگر',employee_name:'نام جدید',base:'100.00',total:'-100.00'});
 });

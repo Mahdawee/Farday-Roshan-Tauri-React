@@ -17,7 +17,7 @@ const tauriStore: Store = {
   createAttendanceBatch: (workDate, rows) => invoke('create_attendance_batch', { workDate, rows }),
   saveAttendance: (id, input) => invoke('save_attendance', { id, input }),
   salaries: () => invoke<Salary[]>('list_salaries'),
-  saveSalary: (id, input) => invoke('save_salary', { id, input }),
+  saveSalary: (id, input, expected) => invoke('save_salary', { id, input, expected:expected ?? null }),
   expenses: () => invoke<Expense[]>('list_expenses'),
   saveExpense: (id, input, expected) => invoke('save_expense', { id, input, expected:expected ?? null }),
   employees: () => invoke<Employee[]>('list_employees'),
@@ -179,7 +179,7 @@ export function createDemoStore(seed = true): Store {
     async salaries() {
       return structuredClone(salaries.map(s => { const e = staff.find(employee => employee.id === s.employee_id); return e ? { ...s, employee_name:e.name, employee_code:e.code } : s; }).sort((a,b) => b.pay_date.localeCompare(a.pay_date)));
     },
-    async saveSalary(id, input) {
+    async saveSalary(id, input, expected) {
       validateDate(input.pay_date);
       if (!validSalaryPeriod(input.period_calendar, input.period_year, input.period_month)) throw new Error('دورهٔ معاش معتبر نیست.');
       if (!['cash','transfer'].includes(input.payment_type)) throw new Error('نوع پرداخت معتبر نیست.');
@@ -190,8 +190,12 @@ export function createDemoStore(seed = true): Store {
       if (bytes(payer)>320 || bytes(notes)>4000) throw new Error('متن واردشده بیش از حد طولانی است.');
       const total=salaryTotal(input.base,input.bonus,input.fine,input.overtime);
       const salary: Salary = { ...input, payer, notes, base:formatScaled(parseScaled(input.base,2)), bonus:formatScaled(parseScaled(input.bonus,2)), fine:formatScaled(parseScaled(input.fine,2)), overtime:formatScaled(parseScaled(input.overtime,2)), total:formatScaled(total), employee_name:employee.name, employee_code:employee.code, id:id || crypto.randomUUID() };
-      if (id) { const index=salaries.findIndex(s=>s.id===id); if (index<0) throw new Error('معاش انتخاب‌شده وجود ندارد.'); salaries[index]=salary; }
-      else salaries.unshift(salary);
+      if (id) {
+        const index=salaries.findIndex(s=>s.id===id),old=salaries[index];
+        if(!expected)throw new Error('نسخهٔ قبلی معاش لازم است؛ فرم را دوباره باز کنید.');
+        if(!old || old.employee_id!==expected.employee_id || old.period_calendar!==expected.period_calendar || old.period_year!==expected.period_year || old.period_month!==expected.period_month || old.pay_date!==expected.pay_date || storedCents(old.base)!==parseScaled(expected.base,2) || storedCents(old.bonus)!==parseScaled(expected.bonus,2) || storedCents(old.fine)!==parseScaled(expected.fine,2) || storedCents(old.overtime)!==parseScaled(expected.overtime,2) || storedCents(old.total)!==salaryTotal(expected.base,expected.bonus,expected.fine,expected.overtime) || old.payer!==expected.payer || old.payment_type!==expected.payment_type || old.notes!==expected.notes) throw new Error('معاش تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.');
+        salaries[index]=salary;
+      } else {if(expected)throw new Error('نسخهٔ قبلی برای معاش جدید قابل استفاده نیست.');salaries.unshift(salary);}
     },
     async expenses() { return structuredClone(expenses.slice().sort((a,b) => b.date.localeCompare(a.date))); },
     async saveExpense(id, input, expected) {

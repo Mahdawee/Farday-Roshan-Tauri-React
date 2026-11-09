@@ -584,3 +584,20 @@ test('expense editing rejects stale data and refreshes the list for reopening',a
   await expect(dialog.getByLabel('توضیحات')).toHaveValue('تغییر دیگر'); await dialog.getByLabel('مبلغ دالری').fill('5'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
   await expect(page.getByRole('row').filter({hasText:'مصرف همزمان'})).toContainText('5');
 });
+
+test('stale salary edits are rejected and the current payment can be reopened',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'معاشات',exact:true}).click();
+  await page.getByRole('button',{name:'پرداخت معاش جدید'}).click(); let dialog=page.getByRole('dialog');
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  const row=page.getByRole('row').filter({hasText:'احمد احمدی'}); await row.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('جریمه').fill('100');
+  await page.evaluate(async()=>{
+    const modulePath=performance.getEntriesByType('resource').map(x=>x.name).find(x=>new URL(x).pathname==='/src/store.ts')!; const {store}=await import(/* @vite-ignore */ modulePath);
+    const old=(await store.salaries())[0]; await store.saveSalary(old.id,{...old,notes:'تغییر دیگر'},old);
+  });
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(dialog.getByRole('alert')).toContainText('معاش تغییر کرده');
+  await expect(dialog.getByLabel('جریمه')).toHaveValue('100'); await dialog.getByRole('button',{name:'انصراف'}).click();
+  await row.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog'); await expect(dialog.getByLabel('توضیحات')).toHaveValue('تغییر دیگر');
+  await dialog.getByLabel('جریمه').fill('100'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await expect(row).toContainText('14,900');
+});

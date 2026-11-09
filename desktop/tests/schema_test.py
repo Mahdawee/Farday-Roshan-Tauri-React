@@ -12,6 +12,18 @@ class SchemaTest(unittest.TestCase):
         self.db.executescript(SCHEMA.read_text())
         self.db.execute("INSERT INTO customers(id,code,name,opening_cents) VALUES('c','CUS-001','مشتری',10000)")
     def tearDown(self): self.db.close()
+    def test_salary_edit_uses_atomic_compare_and_swap(self):
+        for file in ['0002_employees.sql','0004_salaries.sql']:
+            self.db.executescript((SCHEMA.parent / file).read_text())
+        self.db.execute("INSERT INTO employees(id,code,name) VALUES('e','E','کارمند')")
+        self.db.execute("INSERT INTO salaries(id,employee_id,period_calendar,period_year,period_month,pay_date,base_cents,bonus_cents,fine_cents,overtime_cents,total_cents,payer,payment_type,notes) VALUES('p','e','shamsi',1404,1,'2025-03-21',100,0,0,0,100,'','cash','اول')")
+        source=(SCHEMA.parent.parent / 'src/salaries.rs').read_text()
+        query=re.search(r'sqlx::query\("(UPDATE salaries SET .*?)"\)',source).group(1)
+        previous=('p','e','shamsi',1404,1,'2025-03-21',100,0,0,0,100,'','cash','اول')
+        update=('e','shamsi',1404,1,'2025-03-21',100,0,200,0,-100,'','cash','دوم')
+        self.assertEqual(self.db.execute(query,update+previous).rowcount,1)
+        self.assertEqual(self.db.execute(query,update+previous).rowcount,0)
+        self.assertEqual(self.db.execute("SELECT notes,total_cents FROM salaries WHERE id='p'").fetchone(),('دوم',-100))
     def test_expense_edit_uses_atomic_compare_and_swap(self):
         self.db.executescript((SCHEMA.parent / '0003_expenses.sql').read_text())
         self.db.execute("INSERT INTO expenses(id,expense_date,description,expense_type,purchase_bill_no,shop_name,amount_afn_cents,amount_usd_cents,payer,payment_method,notes) VALUES('x','2025-01-01','تیل','سوخت','B','دوکان',120,340,'علی','cash','اول')")
