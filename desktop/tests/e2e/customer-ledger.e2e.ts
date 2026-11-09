@@ -356,7 +356,7 @@ test('editing sale and receipt updates customer ledgers', async ({page})=>{
   await dialog.getByLabel('مشتری').selectOption({label:'اول ویرایش (EDIT-A)'}); await dialog.getByLabel('نوع پرداخت').selectOption('credit');
   await dialog.getByLabel('متراژ (متر مکعب)').fill('1'); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('200'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
   let row=page.getByRole('row').filter({hasText:'اول ویرایش'}); await row.getByRole('button',{name:'جزئیات'}).click(); dialog=page.getByRole('dialog'); await dialog.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
-  await expect(dialog).toContainText('سابقهٔ تغییرات'); await dialog.getByLabel('مشتری').selectOption({label:'دوم ویرایش (EDIT-B)'}); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('300'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await expect(dialog).toContainText('تاریخچهٔ آزمایشی هویت کاربر را ثبت نمی‌کند'); await dialog.getByLabel('مشتری').selectOption({label:'دوم ویرایش (EDIT-B)'}); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('300'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
   await page.getByRole('button',{name:'مشتریان',exact:true}).click();
   await expect(page.getByRole('row').filter({hasText:'اول ویرایش'})).toContainText('100'); await expect(page.getByRole('row').filter({hasText:'دوم ویرایش'})).toContainText('300');
   await page.getByRole('button',{name:'رسیدات',exact:true}).click(); await page.getByRole('button',{name:'رسید جدید'}).click(); dialog=page.getByRole('dialog');
