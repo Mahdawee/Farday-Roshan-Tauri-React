@@ -425,3 +425,28 @@ test('local transaction numbers are searchable and remain fixed on edits',async(
   await page.getByRole('button',{name:'رسیدات',exact:true}).click(); await page.getByRole('button',{name:'رسید جدید'}).click(); dialog=page.getByRole('dialog'); await dialog.getByLabel('مبلغ رسید (افغانی)').fill('5'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
   await page.getByLabel('جستجو',{exact:true}).fill('R-000002'); row=page.getByRole('row').filter({hasText:'R-000002'}); await expect(row).toHaveCount(1); await row.getByRole('button',{name:'جزئیات'}).click(); await expect(page.getByRole('dialog')).toContainText('R-000002');
 });
+
+test('print preview isolates transaction details and keeps the experimental warning',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'فروشات',exact:true}).click(); await page.getByRole('row').filter({hasText:'S-000001'}).getByRole('button',{name:'جزئیات'}).click();
+  const dialog=page.getByRole('dialog'); await expect(dialog).toContainText('شمارهٔ محلی آزمایشی');
+  await page.evaluate(()=>{ (window as Window & {printCalled?:boolean}).print=()=>{(window as Window & {printCalled?:boolean}).printCalled=true;}; });
+  await dialog.getByRole('button',{name:'چاپ آزمایشی'}).click(); expect(await page.evaluate(()=>(window as Window & {printCalled?:boolean}).printCalled)).toBe(true);
+  await page.emulateMedia({media:'print'});
+  await expect(dialog.getByText('شمارهٔ محلی آزمایشی',{exact:true})).toBeVisible(); await expect(dialog.getByText('S-000001')).toBeVisible();
+  await expect(dialog.getByRole('button',{name:'ویرایش'})).toBeHidden();
+  expect(await page.locator('.sidebar').evaluate(el=>getComputedStyle(el).visibility)).toBe('hidden');
+  expect(await dialog.evaluate(el=>getComputedStyle(el).maxHeight)).toBe('none');
+  expect(await dialog.locator('.details-text').first().evaluate(el=>getComputedStyle(el).whiteSpace)).toBe('pre-wrap');
+  await page.emulateMedia({media:'screen'}); await expect(dialog.getByRole('button',{name:'ویرایش'})).toBeVisible();
+});
+
+
+test('long receipt details print across pages without clipping the notes',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'رسیدات',exact:true}).click(); await page.getByRole('button',{name:'رسید جدید'}).click(); let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('مبلغ رسید (افغانی)').fill('50'); await dialog.getByLabel('منبع رسید').selectOption('deposit');
+  await dialog.getByLabel('توضیحات رسید').fill(Array.from({length:110},(_,i)=>`Row ${i+1} abc`).join('\n')); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByLabel('جستجو',{exact:true}).fill('R-000002'); await page.getByRole('row').filter({hasText:'R-000002'}).getByRole('button',{name:'جزئیات'}).click(); dialog=page.getByRole('dialog');
+  await page.emulateMedia({media:'print'}); await expect(dialog.getByText('رسید امانت در بدهی مشتری تأثیر ندارد.')).toBeVisible();
+  const notes=dialog.locator('.details-text').filter({hasText:'Row 110 abc'}); expect(await notes.evaluate(el=>getComputedStyle(el).whiteSpace)).toBe('pre-wrap');
+  const pdf=await page.pdf({format:'A4'}); const pageCount=(pdf.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length; expect(pageCount).toBeGreaterThan(1);
+});

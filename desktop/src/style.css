@@ -18,3 +18,21 @@
 
 /* Keep the growing navigation usable on short desktop and mobile viewports. */
 .sidebar{overflow-y:auto}.sidebar>*{flex-shrink:0}
+
+/* A transaction is printed alone; its warning and experimental number remain visible. */
+@media print {
+  body:has(.transaction-print) * { visibility:hidden; }
+  body:has(.transaction-print) .transaction-print,
+  body:has(.transaction-print) .transaction-print * { visibility:visible; }
+  body:has(.transaction-print) .panel, body:has(.transaction-print) .main,
+  body:has(.transaction-print) .workspace { overflow:visible; }
+  .transaction-print-backdrop { position:absolute; inset:0; display:block; background:white; padding:0; }
+  .transaction-print { position:absolute; top:0; left:0; width:100%; max-height:none; overflow:visible; box-shadow:none; border-radius:0; padding:0; }
+  .transaction-print .table-wrap { overflow:visible; }
+  .transaction-print table { min-width:0; }
+  .transaction-print td, .transaction-print th { white-space:normal; overflow-wrap:anywhere; }
+  .transaction-print td.details-text { white-space:pre-wrap; }
+  .transaction-print tr { break-inside:avoid; }
+  .transaction-print tr:has(.details-text) { break-inside:auto; }
+  .transaction-print .no-print, .transaction-print .no-print * { display:none; visibility:hidden; }
+}
