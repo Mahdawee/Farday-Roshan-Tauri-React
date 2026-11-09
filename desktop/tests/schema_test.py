@@ -170,17 +170,20 @@ class SchemaTest(unittest.TestCase):
 
     def test_actual_paged_transaction_sql_searches_all_records_literally(self):
         self.db.executescript((SCHEMA.parent / '0006_transaction_details.sql').read_text())
+        self.db.executescript((SCHEMA.parent / '0007_document_numbers.sql').read_text())
         source=(SCHEMA.parent.parent / 'src/transactions.rs').read_text()
         sale=re.search(r'"sale" => "(.*?)",',source,re.S).group(1)
         where=re.search(r'let where_clause = "(.*?)";',source,re.S).group(1)
         for i in range(130):
             self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES(?, 'c', ?, ?,1000,100,0,100,'credit')", (f's{i:03}', '2024-01-01' if i<25 else '2026-01-01', 'ویژه %' if i==0 else 'ریگ'))
         self.db.execute("INSERT INTO sale_details(sale_id,bill_no,driver_name) VALUES('s000','BL-007','راننده خاص')")
+        self.db.execute("INSERT INTO sale_numbers(sale_id) VALUES('s000')")
         count=f"WITH records AS ({sale}) SELECT COUNT(*) FROM records{where}"
         page=f"WITH records AS ({sale}) SELECT id FROM records{where} ORDER BY date DESC,created_at DESC,id DESC LIMIT ?6 OFFSET ?7"
         self.assertEqual(self.db.execute(count,(None,None,'',None,None)).fetchone()[0],130)
         self.assertEqual(len(self.db.execute(page,(None,None,'',None,None,25,125)).fetchall()),5)
         self.assertEqual(self.db.execute(count,(None,None,'%',None,None)).fetchone()[0],1)
+        self.assertEqual(self.db.execute(count,(None,None,'s-000001',None,None)).fetchone()[0],1)
         self.assertEqual(self.db.execute(count,(None,None,'bl-007',None,None)).fetchone()[0],1)
         self.assertEqual(self.db.execute(count,(None,None,'راننده خاص',None,None)).fetchone()[0],1)
         self.assertEqual(self.db.execute(count,(None,None,'','c','credit')).fetchone()[0],130)

@@ -143,13 +143,17 @@ pub(crate) async fn add_sale(db: &SqlitePool, input: SaleInput) -> Result<(), St
     sqlx::query("INSERT INTO sales (id, customer_id, sale_date, material, volume_milli, unit_price_cents, freight_cents, total_cents, payment_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(&id).bind(input.customer_id).bind(input.date).bind(input.material.trim()).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type)
         .execute(&mut *tx).await.map_err(db_error)?;
-    write_sale_details(&mut tx,&id,&details).await?; tx.commit().await.map_err(db_error)?; Ok(())
+    write_sale_details(&mut tx,&id,&details).await?;
+    sqlx::query("INSERT INTO sale_numbers(sale_id) VALUES(?)").bind(&id).execute(&mut *tx).await.map_err(db_error)?;
+    tx.commit().await.map_err(db_error)?; Ok(())
 }
 pub(crate) async fn add_receipt(db: &SqlitePool, input: ReceiptInput) -> Result<(), String> {
     let amount=validate_receipt(&input)?; let details=input.details.normalized()?; let id=Uuid::new_v4().to_string(); let mut tx=db.begin().await.map_err(db_error)?;
     sqlx::query("INSERT INTO receipts (id, customer_id, receipt_date, amount_cents, source) VALUES (?, ?, ?, ?, ?)")
         .bind(&id).bind(input.customer_id).bind(input.date).bind(amount).bind(input.source).execute(&mut *tx).await.map_err(db_error)?;
-    write_receipt_details(&mut tx,&id,&details).await?; tx.commit().await.map_err(db_error)?; Ok(())
+    write_receipt_details(&mut tx,&id,&details).await?;
+    sqlx::query("INSERT INTO receipt_numbers(receipt_id) VALUES(?)").bind(&id).execute(&mut *tx).await.map_err(db_error)?;
+    tx.commit().await.map_err(db_error)?; Ok(())
 }
 /// A write lock protects comparison of both the base row and supplemental fields.
 pub(crate) async fn update_sale(db: &SqlitePool, id: String, input: SaleInput, expected: SaleInput) -> Result<(), String> {
@@ -427,6 +431,23 @@ mod tests {
         assert_ne!(r1.is_ok(),r2.is_ok());
         let bill:String=sqlx::query_scalar("SELECT bill_no FROM sale_details WHERE sale_id=?").bind(&id).fetch_one(&db1).await.unwrap();
         assert_eq!(bill,if r1.is_ok() {"A"} else {"B"});
+        db1.close().await; db2.close().await; std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_numbers_are_atomic_immutable_and_independent() {
+        let path=std::env::temp_dir().join(format!("numbers-{}.sqlite3",Uuid::new_v4())); let db1=open_database(path.clone()).await.unwrap(); let db2=open_database(path.clone()).await.unwrap();
+        sqlx::query("INSERT INTO customers(id,code,name) VALUES('c','C','مشتری')").execute(&db1).await.unwrap();
+        let sale=|| SaleInput{customer_id:"c".into(),date:"2025-01-01".into(),material:"ریگ".into(),volume:"1".into(),unit_price:"100".into(),freight:"0".into(),payment_type:"credit".into(),details:SaleDetails::default()};
+        let (a,b)=tokio::join!(add_sale(&db1,sale()),add_sale(&db2,sale())); a.unwrap(); b.unwrap();
+        let numbers:Vec<i64>=sqlx::query_scalar("SELECT number FROM sale_numbers ORDER BY number").fetch_all(&db1).await.unwrap(); assert_eq!(numbers,vec![1,2]);
+        let id:String=sqlx::query_scalar("SELECT sale_id FROM sale_numbers WHERE number=1").fetch_one(&db1).await.unwrap();
+        let mut modified=sale(); modified.date="2026-02-02".into(); update_sale(&db1,id.clone(),modified,sale()).await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT number FROM sale_numbers WHERE sale_id=?").bind(id).fetch_one(&db1).await.unwrap(),1);
+        let mut bad=sale(); bad.customer_id="missing".into(); assert!(add_sale(&db1,bad).await.is_err());
+        let receipt=ReceiptInput{customer_id:"c".into(),date:"2025-01-01".into(),amount:"1".into(),source:"debt".into(),details:ReceiptDetails::default()}; add_receipt(&db1,receipt).await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT number FROM receipt_numbers").fetch_one(&db1).await.unwrap(),1);
+        add_sale(&db1,sale()).await.unwrap(); assert_eq!(sqlx::query_scalar::<_,i64>("SELECT MAX(number) FROM sale_numbers").fetch_one(&db1).await.unwrap(),3);
         db1.close().await; db2.close().await; std::fs::remove_file(path).unwrap();
     }
 

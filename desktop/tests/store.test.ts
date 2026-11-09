@@ -255,3 +255,13 @@ it('retains supplemental fields, searches them, and rejects stale metadata edits
   await expect(s.addSale({...sale,details:{...details,bill_no:'الف'.repeat(81)}})).rejects.toThrow();
   expect((await s.ledger(c)).balance).toBe('100.00');
 });
+
+it('allocates independent local numbers and preserves them through edits',async()=>{
+  const s=createDemoStore(false); await s.addCustomer({code:'C',name:'C',phone:'',opening:'0'}); const customer_id=(await s.snapshot()).customers[0].id;
+  const sale={customer_id,date:'2025-01-01',material:'ریگ',volume:'1',unit_price:'5',freight:'0',payment_type:'cash' as const};
+  await expect(s.addSale({...sale,customer_id:'missing'})).rejects.toThrow(); await s.addSale(sale); await s.addSale(sale);
+  const q={kind:'sale' as const,page:0,search:'S-000001',from:null,to:null,customer_id:null,subtype:null};
+  const page=await s.transactions(q); expect(page.total).toBe(1); expect(page.rows[0].document_number).toBe('S-000001');
+  const id=page.rows[0].id; await s.updateSale(id,{...sale,date:'2026-01-01'},sale); expect((await s.transactionDetail('sale',id)).document_number).toBe('S-000001');
+  await s.addReceipt({customer_id,date:'2025-01-01',amount:'1',source:'debt'}); const rec=(await s.transactions({...q,kind:'receipt',search:'R-000001'})).rows[0]; expect(rec.document_number).toBe('R-000001');
+});

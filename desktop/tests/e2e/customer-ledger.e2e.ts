@@ -416,3 +416,12 @@ test('navigation remains scrollable on short screens',async({page})=>{
   expect(await side.evaluate(el=>el.scrollTop)).toBeGreaterThan(0); await side.getByRole('button',{name:'پشتیبان‌گیری',exact:true}).click();
   await expect(page.getByRole('heading',{name:'پشتیبان‌گیری و بازگردانی'})).toBeVisible();
 });
+
+test('local transaction numbers are searchable and remain fixed on edits',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'فروشات',exact:true}).click(); await page.getByRole('button',{name:'فروش جدید',exact:true}).click(); let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('متراژ (متر مکعب)').fill('1'); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('100'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByLabel('جستجو',{exact:true}).fill('S-000003'); let row=page.getByRole('row').filter({hasText:'S-000003'}); await row.getByRole('button',{name:'جزئیات'}).click(); dialog=page.getByRole('dialog'); await expect(dialog).toContainText('S-000003'); await expect(dialog).toContainText('رسمی');
+  await dialog.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog'); await dialog.getByLabel('قیمت فی متر (افغانی)').fill('120'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(row).toContainText('120');
+  await page.getByRole('button',{name:'رسیدات',exact:true}).click(); await page.getByRole('button',{name:'رسید جدید'}).click(); dialog=page.getByRole('dialog'); await dialog.getByLabel('مبلغ رسید (افغانی)').fill('5'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByLabel('جستجو',{exact:true}).fill('R-000002'); row=page.getByRole('row').filter({hasText:'R-000002'}); await expect(row).toHaveCount(1); await row.getByRole('button',{name:'جزئیات'}).click(); await expect(page.getByRole('dialog')).toContainText('R-000002');
+});

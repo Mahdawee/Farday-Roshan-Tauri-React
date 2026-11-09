@@ -1,9 +1,9 @@
 export interface SaleDetails { bill_no:string; driver_name:string; vehicle_plate:string; destination:string; notes:string }
 export interface ReceiptDetails { related_bill_no:string; received_by:string; notes:string }
 export interface RangeSummary { sales_count:number; sales_cash:string; sales_credit:string; volume:string; receipts_count:number; receipts_effective:string; receipts_deposit:string; expenses_count:number; expenses_afn:string; expenses_usd:string; salaries_count:number; salaries_afn:string }
-export type TransactionDetail = { kind: 'sale'; id: string; customer_id: string; date: string; customer_name: string; customer_code: string; material: string; volume: string; unit_price: string; freight: string; total: string; payment_type: 'cash' | 'credit'; details:SaleDetails } | { kind: 'receipt'; id: string; customer_id: string; date: string; customer_name: string; customer_code: string; amount: string; source: ReceiptInput['source']; details:ReceiptDetails };
+export type TransactionDetail = { kind: 'sale'; id: string; document_number:string | null; customer_id: string; date: string; customer_name: string; customer_code: string; material: string; volume: string; unit_price: string; freight: string; total: string; payment_type: 'cash' | 'credit'; details:SaleDetails } | { kind: 'receipt'; id: string; document_number:string | null; customer_id: string; date: string; customer_name: string; customer_code: string; amount: string; source: ReceiptInput['source']; details:ReceiptDetails };
 export interface TransactionQuery { kind: 'sale' | 'receipt'; page: number; search: string; from: string | null; to: string | null; customer_id: string | null; subtype: string | null }
-export interface TransactionRow extends Entry { customer_code: string }
+export interface TransactionRow extends Entry { customer_code: string; document_number:string | null }
 export interface TransactionPage { rows: TransactionRow[]; total: number; page: number; page_size: number }
 export type AttendanceStatus = 'present' | 'absent' | 'leave' | 'sick' | 'holiday' | 'friday';
 export interface AttendanceBatchRow { employee_id: string; status: AttendanceStatus }

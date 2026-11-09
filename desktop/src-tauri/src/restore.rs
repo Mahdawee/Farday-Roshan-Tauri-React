@@ -630,6 +630,9 @@ mod tests {
         sqlx::query("INSERT INTO sale_numbers(sale_id) VALUES('s')").execute(&live).await.unwrap();
         sqlx::query("UPDATE sqlite_sequence SET seq=20 WHERE name='sale_numbers'").execute(&live).await.unwrap();
         let saved=base.join("v7.sqlite3"); create_backup(&live,saved.clone()).await.unwrap();
+        let other=open_database(base.join("other.sqlite3")).await.unwrap();
+        restore(&other,saved.clone(),base.join("safety-other")).await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT seq FROM sqlite_sequence WHERE name='sale_numbers'").fetch_one(&other).await.unwrap(),20); other.close().await;
         sqlx::query("UPDATE sqlite_sequence SET seq=30 WHERE name='sale_numbers'").execute(&live).await.unwrap();
         restore(&live,saved,base.join("safety")).await.unwrap();
         assert_eq!(sqlx::query_scalar::<_,i64>("SELECT number FROM sale_numbers WHERE sale_id='s'").fetch_one(&live).await.unwrap(),1);

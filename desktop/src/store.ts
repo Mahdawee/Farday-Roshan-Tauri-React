@@ -36,13 +36,13 @@ export function createDemoStore(seed = true): Store {
   const attendance: Attendance[] = [];
   const salaries: Salary[] = [];
   const expenses: Expense[] = [];
-  type DemoEntry = Entry & { customer_id: string; affects_balance: boolean; subtype: string; sale?: { material:string; volume:string; unit_price:string; freight:string; details?:SaleDetails }; receiptDetails?:ReceiptDetails };
+  type DemoEntry = Entry & { document_number:string; customer_id: string; affects_balance: boolean; subtype: string; sale?: { material:string; volume:string; unit_price:string; freight:string; details?:SaleDetails }; receiptDetails?:ReceiptDetails };
   const entries: DemoEntry[] = [
-    { id: 'demo-e1', customer_id: 'demo-1', subtype: 'credit', sale: {material:'ماسه اول',volume:'90.000',unit_price:'600.00',freight:'0.00'}, affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
-    { id: 'demo-e2', customer_id: 'demo-1', subtype: 'debt', affects_balance: true, kind: 'receipt', date: '2026-11-07', customer_name: 'شرکت ساختمانی امید', detail: 'باقی داری', amount: '12000.00' },
-    { id: 'demo-e3', customer_id: 'demo-2', subtype: 'credit', sale: {material:'ریگ',volume:'30.000',unit_price:'600.00',freight:'0.00'}, affects_balance: true, kind: 'sale', date: '2026-11-06', customer_name: 'احمد رحمانی', detail: 'ریگ · باقی', amount: '18000.00' },
+    { id: 'demo-e1', document_number:'S-000002', customer_id: 'demo-1', subtype: 'credit', sale: {material:'ماسه اول',volume:'90.000',unit_price:'600.00',freight:'0.00'}, affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
+    { id: 'demo-e2', document_number:'R-000001', customer_id: 'demo-1', subtype: 'debt', affects_balance: true, kind: 'receipt', date: '2026-11-07', customer_name: 'شرکت ساختمانی امید', detail: 'باقی داری', amount: '12000.00' },
+    { id: 'demo-e3', document_number:'S-000001', customer_id: 'demo-2', subtype: 'credit', sale: {material:'ریگ',volume:'30.000',unit_price:'600.00',freight:'0.00'}, affects_balance: true, kind: 'sale', date: '2026-11-06', customer_name: 'احمد رحمانی', detail: 'ریگ · باقی', amount: '18000.00' },
   ];
-  let credit = 7200000n, receipts = 1200000n;
+  let credit = 7200000n, receipts = 1200000n; let saleNumber=seed ? 2 : 0, receiptNumber=seed ? 1 : 0;
   if (!seed) { customers.length = 0; entries.length = 0; credit = 0n; receipts = 0n; }
   const storedCents = (value: string): bigint => {
     const negative = value.startsWith('-');
@@ -92,13 +92,13 @@ export function createDemoStore(seed = true): Store {
       if (query.from && query.to && query.from>query.to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
       const lowerAscii=(text:string)=>text.replace(/[A-Z]/g,c=>c.toLowerCase());
       const search=lowerAscii(query.search.trim());
-      const rows=entries.filter(e=>e.kind===query.kind && (!query.customer_id || e.customer_id===query.customer_id) && (!query.subtype || e.subtype===query.subtype) && (!query.from || e.date>=query.from) && (!query.to || e.date<=query.to)).map(e=>({...e,customer_code:customers.find(c=>c.id===e.customer_id)?.code || ''})).filter(e=>[e.customer_name,e.customer_code,e.detail,e.date,Object.values(e.kind==='sale'?saleDetails(e.sale?.details):receiptDetails(e.receiptDetails)).join(' ')].some(s=>lowerAscii(s).includes(search))).sort((a,b)=>b.date.localeCompare(a.date));
+      const rows=entries.filter(e=>e.kind===query.kind && (!query.customer_id || e.customer_id===query.customer_id) && (!query.subtype || e.subtype===query.subtype) && (!query.from || e.date>=query.from) && (!query.to || e.date<=query.to)).map(e=>({...e,customer_code:customers.find(c=>c.id===e.customer_id)?.code || ''})).filter(e=>[e.customer_name,e.customer_code,e.detail,e.date,e.document_number,Object.values(e.kind==='sale'?saleDetails(e.sale?.details):receiptDetails(e.receiptDetails)).join(' ')].some(s=>lowerAscii(s).includes(search))).sort((a,b)=>b.date.localeCompare(a.date));
       return structuredClone({ rows:rows.slice(query.page*25,query.page*25+25), total:rows.length, page:query.page, page_size:25 });
     },
     async transactionDetail(kind,id) {
       const entry=entries.find(e=>e.kind===kind && e.id===id); if (!entry) throw new Error('عملیات انتخاب‌شده وجود ندارد.');
       const customer=customers.find(c=>c.id===entry.customer_id); if (!customer) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
-      const common={id:entry.id,customer_id:customer.id,date:entry.date,customer_name:customer.name,customer_code:customer.code};
+      const common={id:entry.id,document_number:entry.document_number,customer_id:customer.id,date:entry.date,customer_name:customer.name,customer_code:customer.code};
       if (kind==='sale' && entry.sale) return structuredClone({kind:'sale',...common,...entry.sale,details:saleDetails(entry.sale.details),total:entry.amount,payment_type:entry.subtype as 'cash' | 'credit'});
       if (kind==='receipt') return structuredClone({kind:'receipt',...common,amount:entry.amount,source:entry.subtype as ReceiptInput['source'],details:receiptDetails(entry.receiptDetails)});
       throw new Error('نوع عملیات معتبر نیست.');
@@ -219,7 +219,7 @@ export function createDemoStore(seed = true): Store {
       const total = saleTotal(input.volume, input.unit_price, input.freight);
       const c = update(input.customer_id, input.payment_type === 'credit' ? total : 0n);
       if (input.payment_type === 'credit') credit += total;
-      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.payment_type, sale: {material:input.material.trim(),volume:formatScaled(parseScaled(input.volume,3),3),unit_price:formatScaled(parseScaled(input.unit_price,2)),freight:formatScaled(parseScaled(input.freight,2)),details}, affects_balance: input.payment_type === 'credit', kind: 'sale', date: input.date, customer_name: c.name, detail: `${input.material} · ${input.payment_type === 'credit' ? 'باقی' : 'نقده'}`, amount: formatScaled(total) });
+      entries.unshift({ id: crypto.randomUUID(), document_number:`S-${String(++saleNumber).padStart(6,'0')}`, customer_id: c.id, subtype: input.payment_type, sale: {material:input.material.trim(),volume:formatScaled(parseScaled(input.volume,3),3),unit_price:formatScaled(parseScaled(input.unit_price,2)),freight:formatScaled(parseScaled(input.freight,2)),details}, affects_balance: input.payment_type === 'credit', kind: 'sale', date: input.date, customer_name: c.name, detail: `${input.material} · ${input.payment_type === 'credit' ? 'باقی' : 'نقده'}`, amount: formatScaled(total) });
     },
     async updateSale(id, input, expected) {
       const validate=(s: SaleInput) => { validateDate(s.date); if (!s.material.trim() || new TextEncoder().encode(s.material.trim()).length>200 || !['cash','credit'].includes(s.payment_type)) throw new Error('معلومات فروش معتبر نیست.'); return saleTotal(s.volume,s.unit_price,s.freight); };
@@ -241,7 +241,7 @@ export function createDemoStore(seed = true): Store {
       const c = update(input.customer_id, input.source === 'deposit' ? 0n : -amount);
       receipts += amount;
       const labels = { debt: 'باقی داری', deposit: 'امانت', statement: 'بیانیه', advance: 'پیش پرداخت' };
-      entries.unshift({ id: crypto.randomUUID(), customer_id: c.id, subtype: input.source, affects_balance: input.source !== 'deposit', kind: 'receipt', date: input.date, customer_name: c.name, detail: labels[input.source], amount: formatScaled(amount), receiptDetails:details });
+      entries.unshift({ id: crypto.randomUUID(), document_number:`R-${String(++receiptNumber).padStart(6,'0')}`, customer_id: c.id, subtype: input.source, affects_balance: input.source !== 'deposit', kind: 'receipt', date: input.date, customer_name: c.name, detail: labels[input.source], amount: formatScaled(amount), receiptDetails:details });
     },
     async updateReceipt(id, input, expected) {
       const validate=(r: ReceiptInput) => { validateDate(r.date); const amount=parseScaled(r.amount,2); if (!amount || !['debt','deposit','statement','advance'].includes(r.source)) throw new Error('معلومات رسید معتبر نیست.'); return amount; };
