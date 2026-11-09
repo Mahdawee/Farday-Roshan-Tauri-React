@@ -63,3 +63,20 @@ jobs:
           path: desktop/src-tauri/target/debug/farday-roshan-desktop.exe
           if-no-files-found: error
           retention-days: 7
+      - name: Build experimental Windows installer
+        shell: pwsh
+        run: |
+          npm run tauri -- build --debug --ci --no-sign --config src-tauri/tauri.experimental.conf.json 2>&1 | Tee-Object -FilePath installer-build.log
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content installer-build.log -Tail 100) -join "`n"
+            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$escaped"
+            exit 1
+          }
+      - name: Upload experimental installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: farday-roshan-windows-installer-experimental
+          path: desktop/src-tauri/target/debug/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7
