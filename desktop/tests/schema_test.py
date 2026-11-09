@@ -155,6 +155,19 @@ class SchemaTest(unittest.TestCase):
         self.db.execute("DELETE FROM sales WHERE id='s'")
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM sale_details").fetchone()[0],0)
 
+    def test_local_document_numbers_upgrade_and_never_reuse_deleted_values(self):
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type,created_at) VALUES('b','c','2025-01-01','ریگ',1000,100,0,100,'cash','2025-01-02'),('a','c','2025-01-01','ریگ',1000,100,0,100,'cash','2025-01-01')")
+        self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c','2025-01-01',100,'debt')")
+        self.db.executescript((SCHEMA.parent / '0007_document_numbers.sql').read_text())
+        self.assertEqual(self.db.execute("SELECT sale_id,number FROM sale_numbers ORDER BY number").fetchall(), [('a',1),('b',2)])
+        self.assertEqual(self.db.execute("SELECT number FROM receipt_numbers").fetchone()[0],1)
+        self.db.execute("DELETE FROM sales WHERE id='b'")
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('n','c','2025-01-01','ریگ',1000,100,0,100,'cash')")
+        self.db.execute("INSERT INTO sale_numbers(sale_id) VALUES('n')")
+        self.assertEqual(self.db.execute("SELECT number FROM sale_numbers WHERE sale_id='n'").fetchone()[0],3)
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO sale_numbers(sale_id) VALUES('missing')")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO sale_numbers(sale_id) VALUES('n')")
+
     def test_actual_paged_transaction_sql_searches_all_records_literally(self):
         self.db.executescript((SCHEMA.parent / '0006_transaction_details.sql').read_text())
         source=(SCHEMA.parent.parent / 'src/transactions.rs').read_text()
