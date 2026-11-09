@@ -7,6 +7,7 @@ import { BackupInfo, chooseBackup, createBackup, restoreBackup, exportRangeCsv }
 import { attendanceLabels, summarizeAttendance, monthlyAttendance } from './attendance';
 import { summarizeSalaries } from './salaries';
 import { summarizeExpenses } from './expenses';
+import { ledgerRange } from './ledger';
 import { Calendar, displayCalendarDate, normalizeDateDigits, parseCalendarDate, todayKabul } from './calendar';
 import './style.css';
 
@@ -89,7 +90,7 @@ function App() {
     {salaryModal && <SalaryModal salary={salaryModal} salaries={salaries} staff={staff} calendar={calendar} close={() => setSalaryModal(null)} saved={async () => { setSalaryModal(null); try { await refresh(); setNotice('معاش ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {expenseModal && <ExpenseModal expense={expenseModal} calendar={calendar} close={() => setExpenseModal(null)} saved={async () => { setExpenseModal(null); try { await refresh(); setNotice('مصرف ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {employeeModal && <EmployeeModal employee={employeeModal} calendar={calendar} close={() => setEmployeeModal(null)} saved={async () => { setEmployeeModal(null); try { await refresh(); setNotice('معلومات کارمند ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
-    {ledgerId && <LedgerModal calendar={calendar} customerId={ledgerId} close={() => setLedgerId(null)}/>}
+    {ledgerId && <LedgerModal key={`${ledgerId}-${calendar}`} calendar={calendar} customerId={ledgerId} close={() => setLedgerId(null)}/>}
     {modal && <FormModal calendar={calendar} kind={modal} snapshot={snapshot} customerEdit={customerEdit} close={closeModal} saved={saved}/>}
   </div>;
 }
@@ -429,20 +430,27 @@ function BackupPanel({ onRestored }: { onRestored: () => Promise<void> }) {
 
 function LedgerModal({ customerId, close, calendar }: { customerId: string; close: () => void; calendar: Calendar }) {
   const [ledger, setLedger] = useState<Ledger | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); const [revision,setRevision]=useState(0);
+  const [from,setFrom]=useState(''); const [to,setTo]=useState('');
   useEffect(() => {
-    let active = true;
+    let active = true; setLedger(null); setError('');
     store.ledger(customerId).then(value => { if (active) setLedger(value); }).catch(e => { if (active) setError(String(e)); });
     return () => { active = false; };
-  }, [customerId]);
-  return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close(); }}>
-    <div className="modal ledger-modal" role="dialog" aria-modal="true" aria-labelledby="ledger-title">
-      <div className="modal-head"><div><span className="eyebrow"><span/> گزارش حساب</span><h2 id="ledger-title">کارت حساب مشتری</h2><p>{ledger ? `${ledger.customer_name} · ${ledger.customer_code}` : 'در حال بارگذاری...'}</p></div><button className="icon-button" aria-label="بستن" onClick={close}><X size={20}/></button></div>
-      {error && <div className="error" role="alert">{error}</div>}
-      {ledger && <><div className="ledger-summary"><div><span>بدهی اولیه</span><b>{displayMoney(ledger.opening)} <small>افغانی</small></b></div><div><span>ماندهٔ حساب</span><b>{displayMoney(ledger.balance)} <small>افغانی</small></b></div></div>
-        <div className="table-wrap"><table><thead><tr><th>{calendar === 'shamsi' ? 'تاریخ شمسی' : 'تاریخ میلادی'}</th><th>شمارهٔ محلی</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead><tbody>{ledger.rows.map(row => <tr key={row.id}><td><span dir="ltr" className="code">{displayCalendarDate(row.date, calendar)}</span></td><td><span dir="ltr" className="code">{row.document_number || '—'}</span></td><td>{row.kind === 'sale' ? 'فروش قرضه' : 'رسید'} · {row.detail}{!row.affects_balance && <span className="ledger-note"> بدون تأثیر بر مانده</span>}</td><td dir="ltr" className="ltr-cell">{row.debit === '0.00' ? '—' : displayMoney(row.debit)}</td><td dir="ltr" className="ltr-cell">{row.credit === '0.00' ? '—' : displayMoney(row.credit)}</td><td><b dir="ltr">{displayMoney(row.balance)}</b></td></tr>)}</tbody></table>{!ledger.rows.length && <div className="empty">هنوز گردش حسابی برای این مشتری ثبت نشده است.</div>}</div>
-        <div className="form-hint">فروش نقده در این کارت بدهی وارد نمی‌شود. رسید امانت فقط برای اطلاع نمایش داده می‌شود و از مانده کم نمی‌شود. شماره‌ها محلی و آزمایشی‌اند، نه شمارهٔ رسمی سند.</div></>}
-      <div className="modal-actions"><button className="btn secondary" onClick={close}>بستن</button></div>
+  }, [customerId,revision]);
+  const start=from.trim() ? parseCalendarDate(from,calendar) : null;
+  const end=to.trim() ? parseCalendarDate(to,calendar) : null;
+  const rangeError=(from.trim() && !start) || (to.trim() && !end) ? 'تاریخ معتبر وارد کنید.' : start && end && start>end ? 'تاریخ آغاز نباید پس از پایان باشد.' : '';
+  const range=ledger && !rangeError ? ledgerRange(ledger,start,end) : null;
+  return <div className="modal-backdrop ledger-print-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) close(); }}>
+    <div className="modal ledger-modal ledger-print" role="dialog" aria-modal="true" aria-labelledby="ledger-title">
+      <div className="modal-head"><div><span className="eyebrow"><span/> گزارش حساب آزمایشی</span><h2 id="ledger-title">کارت حساب مشتری</h2><p>{ledger ? `${ledger.customer_name} · ${ledger.customer_code}` : error ? 'بارگذاری ناموفق بود.' : 'در حال بارگذاری...'}</p></div><button className="icon-button no-print" aria-label="بستن" onClick={close}><X size={20}/></button></div>
+      <div className="form-grid ledger-filters no-print"><Field label={`از تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`}><input dir="ltr" value={from} onChange={e=>setFrom(e.target.value)} placeholder={calendar==='shamsi'?'1404/01/01':'2025/03/21'}/></Field><Field label={`تا تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`}><input dir="ltr" value={to} onChange={e=>setTo(e.target.value)} placeholder={calendar==='shamsi'?'1404/12/29':'2026/03/20'}/></Field></div>
+      {error && <div className="error" role="alert">{error}</div>}{rangeError && <div className="error" role="alert">{rangeError}</div>}
+      {range && <><p className="ledger-period">بازهٔ شامل: از <b dir="ltr">{start ? displayCalendarDate(start,calendar) : 'ابتدا'}</b> تا <b dir="ltr">{end ? displayCalendarDate(end,calendar) : 'آخر'}</b> · تقویم {calendar==='shamsi'?'شمسی':'میلادی'} · {range.rows.length} گردش</p>
+        <div className="ledger-summary"><div><span>ماندهٔ پیش از بازه</span><b dir="ltr">{displayMoney(range.opening)} <small>افغانی</small></b></div><div><span>ماندهٔ پایان بازه</span><b dir="ltr">{displayMoney(range.closing)} <small>افغانی</small></b></div></div>
+        <div className="table-wrap"><table><thead><tr><th>{calendar === 'shamsi' ? 'تاریخ شمسی' : 'تاریخ میلادی'}</th><th>شمارهٔ محلی</th><th>شرح</th><th>بدهکار</th><th>بستانکار</th><th>مانده</th></tr></thead><tbody>{range.rows.map(row => <tr key={row.id}><td><span dir="ltr" className="code">{displayCalendarDate(row.date, calendar)}</span></td><td><span dir="ltr" className="code">{row.document_number || '—'}</span></td><td>{row.kind === 'sale' ? 'فروش قرضه' : 'رسید'} · {row.detail}{!row.affects_balance && <span className="ledger-note"> بدون تأثیر بر مانده</span>}</td><td dir="ltr" className="ltr-cell">{row.debit === '0.00' ? '—' : displayMoney(row.debit)}</td><td dir="ltr" className="ltr-cell">{row.credit === '0.00' ? '—' : displayMoney(row.credit)}</td><td><b dir="ltr">{displayMoney(row.balance)}</b></td></tr>)}</tbody></table>{!range.rows.length && <div className="empty">گردشی در این بازه ثبت نشده است.</div>}</div>
+        <div className="form-hint">این کارت و چاپ آن آزمایشی است و بر اساس اطلاعات زمان بارگذاری نمایش داده می‌شود؛ برای مشاهدهٔ تغییرات احتمالی دوباره بارگذاری کنید. فروش نقده در کارت بدهی وارد نمی‌شود. رسید امانت فقط برای اطلاع نمایش داده می‌شود و از مانده کم نمی‌شود. شماره‌ها محلی و آزمایشی‌اند، نه شمارهٔ رسمی سند. قواعد باید با حسابدار تأیید شوند.</div></>}
+      <div className="modal-actions no-print"><button className="btn secondary" onClick={close}>بستن</button><button className="btn secondary" onClick={()=>setRevision(r=>r+1)}>بارگذاری دوباره</button><button className="btn primary" disabled={!range} onClick={()=>window.print()}>چاپ آزمایشی کارت حساب</button></div>
     </div>
   </div>;
 }

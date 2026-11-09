@@ -478,3 +478,53 @@ test('manual cashbook records independent movements and warns of negative balanc
   await page.getByLabel('تقویم نمایش').selectOption('shamsi');
   await expect(page.getByLabel('تاریخ حرکت (شمسی)')).toBeVisible();
 });
+
+test('customer ledger range includes edges and prints an isolated experimental statement',async({page})=>{
+  await page.goto('/'); await page.getByLabel('تقویم نمایش').selectOption('miladi');
+  await page.getByRole('button',{name:'مشتریان',exact:true}).click();
+  await page.evaluate(async()=>{
+    const modulePath=performance.getEntriesByType('resource').map(x=>x.name).find(x=>new URL(x).pathname==='/src/store.ts')!; const {store}=await import(/* @vite-ignore */ modulePath);
+    await store.addCustomer({code:'LEDGER',name:'مشتری بازه',phone:'',opening:'100'});
+    const customer=(await store.snapshot()).customers.find((c:{code:string})=>c.code==='LEDGER');
+    await store.addSale({customer_id:customer.id,date:'2025-01-01',material:'ریگ',volume:'1',unit_price:'50',freight:'0',payment_type:'credit'});
+    await store.addReceipt({customer_id:customer.id,date:'2025-01-02',amount:'20',source:'deposit'});
+    await store.addReceipt({customer_id:customer.id,date:'2025-01-02',amount:'30',source:'debt'});
+    await store.addReceipt({customer_id:customer.id,date:'2025-01-03',amount:'10',source:'debt'});
+  });
+  // Refresh application state after test data was inserted into the preview adapter.
+  await page.getByRole('button',{name:'مشتری جدید'}).click(); const form=page.getByRole('dialog');
+  await form.getByLabel('کد مشتری').fill('refresh'); await form.getByLabel('نام مشتری / شرکت').fill('کمکی'); await form.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('row').filter({hasText:'مشتری بازه'}).getByRole('button',{name:'کارت حساب'}).click(); const dialog=page.getByRole('dialog');
+  await dialog.getByLabel('از تاریخ (میلادی)').fill('2025/01/02'); await dialog.getByLabel('تا تاریخ (میلادی)').fill('2025/01/02');
+  await expect(dialog.locator('.ledger-summary')).toContainText('150'); await expect(dialog.locator('.ledger-summary')).toContainText('120');
+  await expect(dialog.getByText('بدون تأثیر بر مانده')).toBeVisible(); await expect(dialog.locator('tbody tr')).toHaveCount(2);
+  await dialog.getByLabel('تا تاریخ (میلادی)').fill('2025/02/29'); await expect(dialog.getByRole('alert')).toContainText('تاریخ معتبر');
+  await expect(dialog.getByRole('button',{name:'چاپ آزمایشی کارت حساب'})).toBeDisabled();
+  await dialog.getByLabel('تا تاریخ (میلادی)').fill('2025/01/02');
+  await page.evaluate(()=>{(window as Window & {printCalled?:boolean}).print=()=>{(window as Window & {printCalled?:boolean}).printCalled=true;};});
+  await dialog.getByRole('button',{name:'چاپ آزمایشی کارت حساب'}).click(); expect(await page.evaluate(()=>(window as Window & {printCalled?:boolean}).printCalled)).toBe(true);
+  await page.emulateMedia({media:'print'}); await expect(dialog.getByText('بازهٔ شامل:',{exact:false})).toBeVisible();
+  await expect(dialog.getByText('این کارت و چاپ آن آزمایشی است',{exact:false})).toBeVisible();
+  await expect(dialog.getByLabel('از تاریخ (میلادی)')).toBeHidden(); await expect(dialog.getByRole('button',{name:'بارگذاری دوباره'})).toBeHidden();
+  expect(await page.locator('.sidebar').evaluate(el=>getComputedStyle(el).visibility)).toBe('hidden');
+  await page.emulateMedia({media:'screen'}); await dialog.getByRole('button',{name:'بارگذاری دوباره'}).click(); await expect(dialog.locator('tbody tr')).toHaveCount(2);
+  await dialog.getByLabel('از تاریخ (میلادی)').fill('2025/01/04'); await dialog.getByLabel('تا تاریخ (میلادی)').fill('');
+  await expect(dialog.locator('.ledger-summary')).toContainText('110'); await expect(dialog.getByText('گردشی در این بازه ثبت نشده است.')).toBeVisible();
+  await dialog.getByRole('button',{name:'بستن',exact:true}).last().click(); await page.getByLabel('تقویم نمایش').selectOption('shamsi');
+  await page.getByRole('row').filter({hasText:'مشتری بازه'}).getByRole('button',{name:'کارت حساب'}).click();
+  await dialog.getByLabel('از تاریخ (شمسی)').fill('۱۴۰۳/۱۰/۱۳'); await dialog.getByLabel('تا تاریخ (شمسی)').fill('۱۴۰۳/۱۰/۱۳');
+  await expect(dialog.locator('tbody tr')).toHaveCount(2); await expect(dialog.locator('.ledger-summary')).toContainText('120');
+});
+
+test('ledger print spans pages without limiting the number of rows',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'مشتریان',exact:true}).click();
+  await page.evaluate(async()=>{
+    const modulePath=performance.getEntriesByType('resource').map(x=>x.name).find(x=>new URL(x).pathname==='/src/store.ts')!; const {store}=await import(/* @vite-ignore */ modulePath);
+    for(let i=0;i<80;i++) await store.addReceipt({customer_id:'demo-1',date:'2025-01-01',amount:'1',source:'debt'});
+  });
+  await page.getByRole('row').filter({hasText:'شرکت ساختمانی امید'}).getByRole('button',{name:'کارت حساب'}).click();
+  const dialog=page.getByRole('dialog'); await expect(dialog.locator('tbody tr')).toHaveCount(82);
+  await page.emulateMedia({media:'print'});
+  const pdf=await page.pdf({format:'A4'}); expect((pdf.toString('latin1').match(/\/Type\s*\/Page\b/g)??[]).length).toBeGreaterThan(2);
+  expect(await dialog.evaluate(el=>getComputedStyle(el).maxHeight)).toBe('none');
+});
