@@ -159,6 +159,13 @@ class SchemaTest(unittest.TestCase):
         self.db.execute("DELETE FROM sales WHERE id='s'")
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM sale_details").fetchone()[0],0)
 
+    def test_manual_cashbook_validates_positive_separate_currencies(self):
+        self.db.executescript((SCHEMA.parent / '0008_cashbox.sql').read_text())
+        query="INSERT INTO cashbox_entries(id,entry_date,direction,description,amount_afn_cents,amount_usd_cents) VALUES(?,?,?,?,?,?)"
+        self.db.execute(query,('m','2025-01-01','in','مانده',120,50))
+        for args in [('n','2025-01-01','in','x',0,0),('n','2025-01-01','in','x',-1,5),('n','2025-01-01','invalid','x',1,0),('n','2025-01-01','in',' ',1,0)]:
+            with self.assertRaises(sqlite3.IntegrityError): self.db.execute(query,args)
+
     def test_local_document_numbers_upgrade_and_never_reuse_deleted_values(self):
         self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type,created_at) VALUES('b','c','2025-01-01','ریگ',1000,100,0,100,'cash','2025-01-02'),('a','c','2025-01-01','ریگ',1000,100,0,100,'cash','2025-01-01')")
         self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c','2025-01-01',100,'debt')")
