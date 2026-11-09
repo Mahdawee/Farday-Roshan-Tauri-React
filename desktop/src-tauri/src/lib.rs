@@ -12,6 +12,8 @@ mod restore;
 mod audit;
 #[allow(dead_code)] // Account foundation is deliberately not wired into commands yet.
 mod local_users;
+#[allow(dead_code)] // Prototype until every protected operation is transactional.
+mod local_session;
 use service::{CustomerInput, ReceiptInput, SaleInput, Snapshot, Ledger};
 use sqlx::SqlitePool;
 use tauri::{Manager, State};
