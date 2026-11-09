@@ -14,8 +14,8 @@ export async function createBackup(): Promise<boolean> {
   return true;
 }
 
-export interface BackupInfo { schema_version: number; customers: number; sales: number; receipts: number; employees: number; expenses: number; salaries: number; attendance: number; cashbox: number }
-export interface RestoreResult { safety_backup: string; customers: number; sales: number; receipts: number; employees: number; expenses: number; salaries: number; attendance: number; cashbox: number }
+export interface BackupInfo { schema_version: number; customers: number; sales: number; receipts: number; employees: number; expenses: number; salaries: number; attendance: number; cashbox: number; calendar: 'shamsi' | 'miladi' }
+export interface RestoreResult { safety_backup: string; customers: number; sales: number; receipts: number; employees: number; expenses: number; salaries: number; attendance: number; cashbox: number; calendar: 'shamsi' | 'miladi' }
 
 export async function chooseBackup(): Promise<{ path: string; info: BackupInfo } | null> {
   if (!inDesktop) throw new Error('بازگردانی فقط در نسخهٔ دسکتاپ قابل استفاده است.');

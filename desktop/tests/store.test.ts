@@ -309,3 +309,10 @@ describe('grouped reports',()=>{
     const sum=await s.rangeSummary('2025-03-21','2025-03-22'); expect(sum.sales_cash).toBe(report.materials[0].cash); expect(sum.sales_credit).toBe(report.materials[0].credit); expect(sum.expenses_afn).toBe('2.00'); expect(sum.expenses_usd).toBe('4.65');
   });
 });
+
+it('calendar preference is validated and persists only for the life of the demo store',async()=>{
+  const s=createDemoStore(false); expect(await s.calendarPreference()).toBe('shamsi');
+  await s.setCalendarPreference('miladi'); expect(await s.calendarPreference()).toBe('miladi');
+  await expect(s.setCalendarPreference('bad' as 'miladi')).rejects.toThrow(); expect(await s.calendarPreference()).toBe('miladi');
+  expect(await createDemoStore(false).calendarPreference()).toBe('shamsi');
+});

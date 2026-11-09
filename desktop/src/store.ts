@@ -1,8 +1,11 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { normalizeDateDigits } from './calendar';
+import type { Calendar } from './calendar';
 import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary, SaleDetails, ReceiptDetails, CashboxEntry, CashboxPage, GroupedReport } from './domain';
 
 const tauriStore: Store = {
+  calendarPreference: () => invoke<Calendar>('get_calendar_preference'),
+  setCalendarPreference: value => invoke('set_calendar_preference',{value}),
   groupedReport: (from,to) => invoke<GroupedReport>('grouped_report',{from,to}),
   cashbox: query => invoke<CashboxPage>('cashbox_page',{query}),
   addCashbox: input => invoke('add_cashbox_entry',{input}),
@@ -40,6 +43,7 @@ export function createDemoStore(seed = true): Store {
   const salaries: Salary[] = [];
   const expenses: Expense[] = [];
   const cashboxEntries: CashboxEntry[] = [];
+  let calendarPreference: Calendar = 'shamsi';
   type DemoEntry = Entry & { document_number:string; customer_id: string; affects_balance: boolean; subtype: string; sale?: { material:string; volume:string; unit_price:string; freight:string; details?:SaleDetails }; receiptDetails?:ReceiptDetails };
   const entries: DemoEntry[] = [
     { id: 'demo-e1', document_number:'S-000002', customer_id: 'demo-1', subtype: 'credit', sale: {material:'ماسه اول',volume:'90.000',unit_price:'600.00',freight:'0.00'}, affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
@@ -71,6 +75,8 @@ export function createDemoStore(seed = true): Store {
     if (Number(m[1]) < 1 || !Number.isFinite(d.getTime()) || d.toISOString().slice(0, 10) !== date) throw new Error('تاریخ میلادی معتبر وارد کنید.');
   };
   return {
+    async calendarPreference() { return calendarPreference; },
+    async setCalendarPreference(value) { if (value!=='shamsi' && value!=='miladi') throw new Error('تقویم انتخاب‌شده معتبر نیست.'); calendarPreference=value; },
     async groupedReport(from,to) {
       validateDate(from); validateDate(to); if(from>to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
       const within=(date:string)=>date>=from && date<=to;
@@ -299,6 +305,8 @@ export function createDemoStore(seed = true): Store {
 export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
+  calendarPreference: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  setCalendarPreference: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   groupedReport: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   cashbox: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addCashbox: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

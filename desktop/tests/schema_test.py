@@ -12,6 +12,13 @@ class SchemaTest(unittest.TestCase):
         self.db.executescript(SCHEMA.read_text())
         self.db.execute("INSERT INTO customers(id,code,name,opening_cents) VALUES('c','CUS-001','مشتری',10000)")
     def tearDown(self): self.db.close()
+    def test_calendar_preference_migration_is_singleton_and_validated(self):
+        self.db.executescript((SCHEMA.parent / '0009_preferences.sql').read_text())
+        self.assertEqual(self.db.execute("SELECT id,calendar FROM app_preferences").fetchall(), [(1,'shamsi')])
+        self.db.execute("UPDATE app_preferences SET calendar='miladi' WHERE id=1")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("UPDATE app_preferences SET calendar='other'")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO app_preferences VALUES(2,'shamsi')")
+        self.assertEqual(self.db.execute("SELECT calendar FROM app_preferences").fetchone()[0], 'miladi')
     def test_foreign_keys_and_validation(self):
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','missing','2026-01-01',100,'debt')")

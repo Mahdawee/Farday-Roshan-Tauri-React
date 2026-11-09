@@ -38,3 +38,5 @@
   :is(.transaction-print,.ledger-print) tr:has(.details-text) { break-inside:auto; }
   :is(.transaction-print,.ledger-print) .no-print, :is(.transaction-print,.ledger-print) .no-print * { display:none; visibility:hidden; }
 }
+
+.calendar-start{min-height:100vh;display:grid;place-items:center;padding:20px}.calendar-start .panel{width:min(560px,100%)}.calendar-start p{margin-top:14px}.calendar-start .btn{margin-top:18px}

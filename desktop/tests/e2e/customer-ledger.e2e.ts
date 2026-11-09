@@ -553,3 +553,17 @@ test('grouped report uses both dates, exact labels, and separate currencies',asy
   await page.getByRole('button',{name:'محاسبهٔ راپور تفکیکی'}).click();
   await expect(page.getByRole('region',{name:'فروش بر اساس مواد'}).getByRole('row').filter({hasText:'ریگ'})).toContainText('30');
 });
+
+test('calendar save failure retains the old selection, and preview preference is temporary',async({page})=>{
+  await page.goto('/'); const select=page.getByLabel('تقویم نمایش'); await expect(select).toHaveValue('shamsi');
+  await page.evaluate(async()=>{
+    const modulePath=performance.getEntriesByType('resource').map(x=>x.name).find(x=>new URL(x).pathname==='/src/store.ts')!;
+    const {store}=await import(/* @vite-ignore */ modulePath); const original=store.setCalendarPreference;
+    (window as Window & {restoreCalendar?:()=>void}).restoreCalendar=()=>{store.setCalendarPreference=original;};
+    store.setCalendarPreference=async()=>{throw new Error('خطای آزمایشی ذخیره');};
+  });
+  await select.selectOption('miladi'); await expect(page.getByRole('alert')).toContainText('تنظیم تقویم ذخیره نشد'); await expect(select).toHaveValue('shamsi');
+  await page.evaluate(()=>(window as Window & {restoreCalendar?:()=>void}).restoreCalendar!());
+  await select.selectOption('miladi'); await expect(select).toHaveValue('miladi'); await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.reload(); await expect(page.getByLabel('تقویم نمایش')).toHaveValue('shamsi');
+});
