@@ -20,8 +20,8 @@ async fn add_customer(db: State<'_, Database>, input: CustomerInput) -> Result<(
     service::add_customer(&db.0, input).await
 }
 #[tauri::command]
-async fn update_customer(db: State<'_, Database>, id: String, input: CustomerInput) -> Result<(), String> {
-    service::update_customer(&db.0, id, input).await
+async fn update_customer(db: State<'_, Database>, id: String, input: CustomerInput, expected: CustomerInput) -> Result<(), String> {
+    service::update_customer(&db.0, id, input, expected).await
 }
 #[tauri::command]
 async fn add_sale(db: State<'_, Database>, input: SaleInput) -> Result<(), String> {

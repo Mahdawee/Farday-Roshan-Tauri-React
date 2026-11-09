@@ -28,16 +28,16 @@ describe('temporary preview workflow', () => {
     const s = createDemoStore(false);
     await s.addCustomer({ code: 'C-1', name: 'اول', phone: '', opening: '100' });
     await s.addCustomer({ code: 'C-2', name: 'دوم', phone: '', opening: '0' });
-    const id = (await s.snapshot()).customers[0].id;
+    const original = (await s.snapshot()).customers[0]; const id = original.id;
     await s.addSale({ customer_id: id, date: '2026-01-01', material: 'ریگ', volume: '1', unit_price: '500', freight: '0', payment_type: 'credit' });
-    await expect(s.updateCustomer(id, { code: 'c-2', name: 'تغییر', phone: '', opening: '200' })).rejects.toThrow();
-    await s.updateCustomer(id, { code: 'C-1', name: 'ویرایش', phone: '0700', opening: '200' });
+    await expect(s.updateCustomer(id, { code: 'c-2', name: 'تغییر', phone: '', opening: '200' },original)).rejects.toThrow();
+    await s.updateCustomer(id, { code: 'C-1', name: 'ویرایش', phone: '0700', opening: '200' },original);
     const ledger = await s.ledger(id);
     expect(ledger.customer_name).toBe('ویرایش');
     expect(ledger.balance).toBe('700.00');
     expect(ledger.rows).toHaveLength(1);
     expect((await s.snapshot()).entries[0].customer_name).toBe('ویرایش');
-    await expect(s.updateCustomer('missing', { code: 'C-3', name: 'سوم', phone: '', opening: '0' })).rejects.toThrow();
+    await expect(s.updateCustomer('missing', { code: 'C-3', name: 'سوم', phone: '', opening: '0' },original)).rejects.toThrow();
   });
   it('rejects duplicates and invalid dates without changing data', async () => {
     const s = createDemoStore(false);
@@ -176,7 +176,7 @@ describe('transaction details',()=>{
     expect(await s.transactionDetail('sale',sale.id)).toMatchObject({volume:'1.250',unit_price:'200.00',freight:'30.00',total:'287.50',payment_type:'credit'});
     expect(await s.transactionDetail('receipt',receipt.id)).toMatchObject({amount:'1.25',source:'deposit'});
     await expect(s.transactionDetail('receipt',sale.id)).rejects.toThrow();
-    await s.updateCustomer(id,{code:'C2',name:'نام جدید',phone:'',opening:'0'});
+    await s.updateCustomer(id,{code:'C2',name:'نام جدید',phone:'',opening:'0'},(await s.snapshot()).customers[0]);
     expect(await s.transactionDetail('sale',sale.id)).toMatchObject({customer_code:'C2',customer_name:'نام جدید'});
   });
 });
@@ -341,4 +341,17 @@ it('rejects stale salary changes while retaining the winning edit and employee s
   const [fresh]=await s.salaries(); await s.saveEmployee(employee.id,{...employee,name:'نام جدید',base_salary:'500'});
   await s.saveSalary(fresh.id,{...fresh,fine:'200'},fresh);
   expect((await s.salaries())[0]).toMatchObject({notes:'دیگر',employee_name:'نام جدید',base:'100.00',total:'-100.00'});
+});
+
+it('customer CAS detects case-only changes without blocking new transactions',async()=>{
+  const s=createDemoStore(false); await s.addCustomer({code:'C',name:'مشتری',phone:'',opening:'100'});
+  const original=(await s.snapshot()).customers[0];
+  await s.addSale({customer_id:original.id,date:'2025-01-01',material:'ریگ',volume:'1',unit_price:'50',freight:'0',payment_type:'credit'});
+  await s.addReceipt({customer_id:original.id,date:'2025-01-02',amount:'20',source:'debt'});
+  await expect(s.updateCustomer(original.id,original,undefined as never)).rejects.toThrow();
+  await s.updateCustomer(original.id,{...original,code:'c'},original);
+  await expect(s.updateCustomer(original.id,{...original,opening:'200'},original)).rejects.toThrow('تغییر کرده');
+  const fresh=(await s.snapshot()).customers[0]; expect(fresh.balance).toBe('130.00');
+  await s.updateCustomer(fresh.id,{...fresh,opening:'200'},fresh);
+  expect((await s.ledger(fresh.id)).balance).toBe('230.00');
 });

@@ -12,6 +12,14 @@ class SchemaTest(unittest.TestCase):
         self.db.executescript(SCHEMA.read_text())
         self.db.execute("INSERT INTO customers(id,code,name,opening_cents) VALUES('c','CUS-001','مشتری',10000)")
     def tearDown(self): self.db.close()
+    def test_customer_edit_compare_uses_binary_code_and_preserves_ledger(self):
+        source=(SCHEMA.parent.parent / 'src/service.rs').read_text()
+        query=re.search(r'sqlx::query\("(UPDATE customers SET .*?)"\)',source).group(1)
+        previous=('c','CUS-001','مشتری','',10000)
+        update=('cus-001','مشتری','',10000)
+        self.assertEqual(self.db.execute(query,update+previous).rowcount,1)
+        self.assertEqual(self.db.execute(query,('CUS-001','مشتری','',20000)+previous).rowcount,0)
+        self.assertEqual(self.db.execute("SELECT code,opening_cents FROM customers WHERE id='c'").fetchone(),('cus-001',10000))
     def test_salary_edit_uses_atomic_compare_and_swap(self):
         for file in ['0002_employees.sql','0004_salaries.sql']:
             self.db.executescript((SCHEMA.parent / file).read_text())

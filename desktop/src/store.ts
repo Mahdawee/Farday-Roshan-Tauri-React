@@ -24,7 +24,7 @@ const tauriStore: Store = {
   saveEmployee: (id, input) => invoke('save_employee', { id, input }),
   ledger: customerId => invoke<Ledger>('customer_ledger', { customerId }),
   addCustomer: input => invoke('add_customer', { input }),
-  updateCustomer: (id, input) => invoke('update_customer', { id, input }),
+  updateCustomer: (id, input, expected) => invoke('update_customer', { id, input, expected }),
   addSale: input => invoke('add_sale', { input }),
   updateSale: (id,input,expected) => invoke('update_sale', { id,input,expected }),
   addReceipt: input => invoke('add_receipt', { input }),
@@ -251,15 +251,15 @@ export function createDemoStore(seed = true): Store {
       const opening = parseScaled(input.opening, 2);
       customers.push({ ...input, code, name, opening: formatScaled(opening), balance: formatScaled(opening), id: crypto.randomUUID() });
     },
-    async updateCustomer(id, input) {
+    async updateCustomer(id, input, expected) {
       const code = input.code.trim(), name = input.name.trim();
       if (!code || !name) throw new Error('کد و نام مشتری الزامی است.');
-      if (customers.some(c => c.id !== id && c.code.toLowerCase() === code.toLowerCase())) throw new Error('کد مشتری قبلاً ثبت شده است.');
-      const customer = customers.find(c => c.id === id);
-      if (!customer) throw new Error('مشتری انتخاب‌شده وجود ندارد.');
       const opening = parseScaled(input.opening, 2);
+      const customer = customers.find(c => c.id === id);
+      if (!expected || !customer || customer.code!==expected.code || customer.name!==expected.name || customer.phone!==expected.phone || storedCents(customer.opening)!==parseScaled(expected.opening,2)) throw new Error('مشتری تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.');
+      if (customers.some(c => c.id !== id && c.code.toLowerCase() === code.toLowerCase())) throw new Error('کد مشتری قبلاً ثبت شده است.');
       const balance = storedCents(customer.balance) - storedCents(customer.opening) + opening;
-      Object.assign(customer, { ...input, code, name, opening: formatScaled(opening), balance: formatScaled(balance) });
+      Object.assign(customer, { ...input, code, name, phone:input.phone.trim(), opening: formatScaled(opening), balance: formatScaled(balance) });
       for (const entry of entries) if (entry.customer_id === id) entry.customer_name = name;
     },
     async addSale(input) {

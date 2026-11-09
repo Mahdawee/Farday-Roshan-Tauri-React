@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 const MAX: i128 = 1_000_000_000_000;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub(crate) struct CustomerInput { code: String, name: String, phone: String, opening: String }
 #[derive(Deserialize)]
 pub(crate) struct SaleInput { customer_id: String, date: String, material: String, volume: String, unit_price: String, freight: String, payment_type: String, #[serde(default)] details: SaleDetails }
@@ -114,12 +114,15 @@ pub(crate) async fn add_customer(db: &SqlitePool, input: CustomerInput) -> Resul
     Ok(())
 }
 
-pub(crate) async fn update_customer(db: &SqlitePool, id: String, input: CustomerInput) -> Result<(), String> {
+pub(crate) async fn update_customer(db: &SqlitePool, id: String, input: CustomerInput, expected: CustomerInput) -> Result<(), String> {
     let opening = validate_customer(&input)?;
-    let changed = sqlx::query("UPDATE customers SET code=?,name=?,phone=?,opening_cents=? WHERE id=?")
+    let old_opening=scaled(&expected.opening,2)?;
+    // code is normally NOCASE for uniqueness; use BINARY here so case-only edits conflict.
+    let changed = sqlx::query("UPDATE customers SET code=?,name=?,phone=?,opening_cents=? WHERE id=? AND code COLLATE BINARY=? AND name=? AND phone=? AND opening_cents=?")
         .bind(input.code.trim()).bind(input.name.trim()).bind(input.phone.trim()).bind(opening).bind(id)
+        .bind(expected.code).bind(expected.name).bind(expected.phone).bind(old_opening)
         .execute(db).await.map_err(db_error)?.rows_affected();
-    if changed == 0 { return Err("مشتری انتخاب‌شده وجود ندارد.".into()); }
+    if changed == 0 { return Err("مشتری تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.".into()); }
     Ok(())
 }
 
@@ -358,6 +361,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stale_customer_changes_are_rejected_and_case_only_edits_conflict() {
+        let path=std::env::temp_dir().join(format!("customer-conflict-{}.sqlite3",Uuid::new_v4()));
+        let first=open_database(path.clone()).await.unwrap();let second=open_database(path.clone()).await.unwrap();
+        let old=CustomerInput{code:"C-1".into(),name:"مشتری".into(),phone:"".into(),opening:"100".into()};
+        add_customer(&first,old.clone()).await.unwrap(); let id=snapshot(&first).await.unwrap().customers.remove(0).id;
+        let mut a=old.clone();a.code="c-1".into();let mut b=old.clone();b.opening="200".into();
+        let (x,y)=tokio::join!(update_customer(&first,id.clone(),a,old.clone()),update_customer(&second,id.clone(),b,old.clone()));
+        assert_ne!(x.is_ok(),y.is_ok()); let row=snapshot(&first).await.unwrap().customers.remove(0);
+        assert!(row.code=="c-1" && row.opening=="100.00" || row.code=="C-1" && row.opening=="200.00");
+        assert!(update_customer(&first,id.clone(),old.clone(),old).await.is_err());
+        let current=CustomerInput{code:row.code,name:row.name,phone:row.phone,opening:row.opening};
+        let mut case_edit=current.clone(); case_edit.code=if current.code=="C-1" {"c-1"} else {"C-1"}.into();
+        update_customer(&first,id.clone(),case_edit,current.clone()).await.unwrap();
+        assert!(update_customer(&second,id,current.clone(),current).await.is_err());
+        first.close().await;second.close().await;std::fs::remove_file(path).unwrap();
+    }
+    #[tokio::test]
     async fn editing_customer_keeps_transactions_and_recalculates_opening_balance() {
         let path = std::env::temp_dir().join(format!("customer-edit-{}.sqlite3", Uuid::new_v4()));
         let db = open_database(path.clone()).await.unwrap();
@@ -365,11 +385,13 @@ mod tests {
         add_customer(&db, CustomerInput { code: "C-2".into(), name: "دوم".into(), phone: "".into(), opening: "0".into() }).await.unwrap();
         let customer = snapshot(&db).await.unwrap().customers.into_iter().find(|c| c.code == "C-1").unwrap();
         add_sale(&db, SaleInput { customer_id: customer.id.clone(), date: "2026-01-01".into(), material: "ریگ".into(), volume: "1".into(), unit_price: "500".into(), freight: "0".into(), payment_type: "credit".into(), details:SaleDetails::default() }).await.unwrap();
-        assert!(update_customer(&db, customer.id.clone(), CustomerInput { code: "c-2".into(), name: "نام".into(), phone: "".into(), opening: "200".into() }).await.is_err());
-        update_customer(&db, customer.id.clone(), CustomerInput { code: "C-1".into(), name: "ویرایش".into(), phone: "0700".into(), opening: "200".into() }).await.unwrap();
+        add_receipt(&db, ReceiptInput { customer_id:customer.id.clone(),date:"2026-01-02".into(),amount:"50".into(),source:"debt".into(),details:ReceiptDetails::default() }).await.unwrap();
+        let original=CustomerInput {code:"C-1".into(),name:"مشتری".into(),phone:"".into(),opening:"100".into()};
+        assert!(update_customer(&db, customer.id.clone(), CustomerInput { code: "c-2".into(), name: "نام".into(), phone: "".into(), opening: "200".into() },original.clone()).await.is_err());
+        update_customer(&db, customer.id.clone(), CustomerInput { code: "C-1".into(), name: "ویرایش".into(), phone: "0700".into(), opening: "200".into() },original.clone()).await.unwrap();
         let ledger = customer_ledger(&db, customer.id).await.unwrap();
-        assert_eq!(ledger.customer_name, "ویرایش"); assert_eq!(ledger.balance, "700.00");
-        assert!(update_customer(&db, "missing".into(), CustomerInput { code: "X".into(), name: "نام".into(), phone: "".into(), opening: "0".into() }).await.is_err());
+        assert_eq!(ledger.customer_name, "ویرایش"); assert_eq!(ledger.balance, "650.00");
+        assert!(update_customer(&db, "missing".into(), CustomerInput { code: "X".into(), name: "نام".into(), phone: "".into(), opening: "0".into() },original).await.is_err());
         db.close().await; std::fs::remove_file(path).unwrap();
     }
 

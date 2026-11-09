@@ -601,3 +601,18 @@ test('stale salary edits are rejected and the current payment can be reopened',a
   await dialog.getByLabel('جریمه').fill('100'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
   await expect(row).toContainText('14,900');
 });
+
+test('stale customer edits do not overwrite a newer opening balance',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'مشتریان',exact:true}).click();
+  const row=page.getByRole('row').filter({hasText:'شرکت ساختمانی امید'}); await row.getByRole('button',{name:'ویرایش'}).click();
+  let dialog=page.getByRole('dialog'); await dialog.getByLabel('شماره تماس').fill('0700');
+  await page.evaluate(async()=>{
+    const modulePath=performance.getEntriesByType('resource').map(x=>x.name).find(x=>new URL(x).pathname==='/src/store.ts')!;const {store}=await import(/* @vite-ignore */ modulePath);
+    const old=(await store.snapshot()).customers.find((c:{id:string})=>c.id==='demo-1'); await store.updateCustomer(old.id,{...old,opening:'500'},old);
+  });
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(dialog.getByRole('alert')).toContainText('مشتری تغییر کرده');
+  await expect(dialog.getByLabel('شماره تماس')).toHaveValue('0700'); await dialog.getByRole('button',{name:'انصراف'}).click();
+  await row.getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog'); await expect(dialog.getByLabel('بدهی اولیه (افغانی)')).toHaveValue('500.00');
+  await dialog.getByLabel('شماره تماس').fill('0700'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await expect(row).toContainText('42,500');
+});
