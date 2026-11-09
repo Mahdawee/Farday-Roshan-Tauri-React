@@ -415,4 +415,19 @@ mod tests {
         db.close().await; std::fs::remove_file(path).unwrap();
     }
 
+    #[tokio::test]
+    async fn concurrent_metadata_updates_do_not_lose_a_winner() {
+        let path=std::env::temp_dir().join(format!("details-race-{}.sqlite3",Uuid::new_v4()));
+        let db1=open_database(path.clone()).await.unwrap(); let db2=open_database(path.clone()).await.unwrap();
+        sqlx::query("INSERT INTO customers(id,code,name) VALUES('c','C','مشتری')").execute(&db1).await.unwrap();
+        let sale=|| SaleInput{customer_id:"c".into(),date:"2025-01-01".into(),material:"ریگ".into(),volume:"1".into(),unit_price:"100".into(),freight:"0".into(),payment_type:"credit".into(),details:SaleDetails::default()};
+        add_sale(&db1,sale()).await.unwrap(); let id:String=sqlx::query_scalar("SELECT id FROM sales").fetch_one(&db1).await.unwrap();
+        let mut a=sale(); a.details.bill_no="A".into(); let mut b=sale(); b.details.bill_no="B".into();
+        let (r1,r2)=tokio::join!(update_sale(&db1,id.clone(),a,sale()),update_sale(&db2,id.clone(),b,sale()));
+        assert_ne!(r1.is_ok(),r2.is_ok());
+        let bill:String=sqlx::query_scalar("SELECT bill_no FROM sale_details WHERE sale_id=?").bind(&id).fetch_one(&db1).await.unwrap();
+        assert_eq!(bill,if r1.is_ok() {"A"} else {"B"});
+        db1.close().await; db2.close().await; std::fs::remove_file(path).unwrap();
+    }
+
 }
