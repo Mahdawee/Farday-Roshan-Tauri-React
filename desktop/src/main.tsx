@@ -9,6 +9,7 @@ import { attendanceLabels, summarizeAttendance, monthlyAttendance } from './atte
 import { summarizeSalaries } from './salaries';
 import { summarizeExpenses } from './expenses';
 import { ledgerRange } from './ledger';
+import { legacySimpleCashDelta } from './legacy-cash';
 import { Calendar, displayCalendarDate, normalizeDateDigits, parseCalendarDate, todayKabul } from './calendar';
 import './style.css';
 
@@ -186,7 +187,7 @@ function FinancialReport({calendar}:{calendar:Calendar}) {
           ['تعداد مصارف',String(result.data.expenses_count),'رکورد'],['مصارف افغانی',displayMoney(result.data.expenses_afn),'افغانی'],['مصارف دالری',displayMoney(result.data.expenses_usd),'دالر'],
           ['تعداد معاشات',String(result.data.salaries_count),'رکورد'],['معاشات',displayMoney(result.data.salaries_afn),'افغانی'],
         ] as [string,string,string][]).map(([label,value,unit])=><tr key={label}><th>{label}</th><td><b dir="ltr">{value}</b> <span className="unit">{unit}</span></td></tr>)}
-      </tbody></table></div><div className="expense-feedback"><button type="button" className="btn secondary" disabled={!inDesktop || busy} onClick={exportCsv}>خروجی CSV</button> <span className="form-hint">{inDesktop ? 'فایل باید جدید باشد؛ اگر جمع‌ها تغییر کرده‌اند، ابتدا راپور را دوباره محاسبه کنید.' : 'خروجی فایل در پیش‌نمایش مرورگر فعال نیست.'}</span></div></>}
+      </tbody></table></div><div className="expense-feedback"><h3>مقایسهٔ آزمایشی با دخل سادهٔ نسخهٔ پیشین</h3><p>تغییر محاسبه‌شدهٔ بازه: <b dir="ltr">{displayMoney(legacySimpleCashDelta(result.data))}</b> افغانی</p><div className="form-hint salary-warning">فروش نقده + تمام رسیدها (از جمله امانت) − تمام مصارف افغانی − تمام معاش‌ها؛ مطابق حالت سادهٔ سابق، مصارف باقی و معاش حواله هم شامل‌اند و معاش منفی اثر معکوس دارد. این عدد ماندهٔ واقعی دخل یا سود نیست و ماندهٔ اولیه، دفتر دستی و دالر در آن حساب نشده‌اند. از افزودن آن به دفتر دستی برای جلوگیری از شمارش دوباره خودداری کنید. این مقایسه نیازمند تأیید حسابدار است و در CSV فعلی وجود ندارد.</div></div><div className="expense-feedback"><button type="button" className="btn secondary" disabled={!inDesktop || busy} onClick={exportCsv}>خروجی CSV</button> <span className="form-hint">{inDesktop ? 'فایل باید جدید باشد؛ اگر جمع‌ها تغییر کرده‌اند، ابتدا راپور را دوباره محاسبه کنید.' : 'خروجی فایل در پیش‌نمایش مرورگر فعال نیست.'}</span></div></>}
     <div className="form-hint">رسید امانت از بدهی کم نمی‌شود؛ باقی رسیدها در جمع مؤثر بر بدهی آمده‌اند. مصارف نقده و باقی هر دو شامل‌اند؛ معاش بر اساس تاریخ پرداخت است و ممکن است منفی باشد. ارزها تبدیل یا جمع نمی‌شوند. این ارقام موجودی دخل، سود یا زیان نیستند؛ قواعد و داده‌ها باید با حسابدار تطبیق شوند. چاپ و سایر راپورهای قدیمی هنوز آماده نیست.</div>
   </section>;
 }
