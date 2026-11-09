@@ -19,7 +19,7 @@ const tauriStore: Store = {
   salaries: () => invoke<Salary[]>('list_salaries'),
   saveSalary: (id, input) => invoke('save_salary', { id, input }),
   expenses: () => invoke<Expense[]>('list_expenses'),
-  saveExpense: (id, input) => invoke('save_expense', { id, input }),
+  saveExpense: (id, input, expected) => invoke('save_expense', { id, input, expected:expected ?? null }),
   employees: () => invoke<Employee[]>('list_employees'),
   saveEmployee: (id, input) => invoke('save_employee', { id, input }),
   ledger: customerId => invoke<Ledger>('customer_ledger', { customerId }),
@@ -194,7 +194,7 @@ export function createDemoStore(seed = true): Store {
       else salaries.unshift(salary);
     },
     async expenses() { return structuredClone(expenses.slice().sort((a,b) => b.date.localeCompare(a.date))); },
-    async saveExpense(id, input) {
+    async saveExpense(id, input, expected) {
       validateDate(input.date);
       const fields = { description: input.description.trim(), expense_type: input.expense_type.trim(), purchase_bill_no: input.purchase_bill_no.trim(), shop_name: input.shop_name.trim(), payer: input.payer.trim(), notes: input.notes.trim() };
       if (!fields.description) throw new Error('شرح مصرف الزامی است.');
@@ -206,9 +206,11 @@ export function createDemoStore(seed = true): Store {
       const expense: Expense = { ...input, ...fields, amount_afn: formatScaled(afn), amount_usd: formatScaled(usd), id: id || crypto.randomUUID() };
       if (id) {
         const index = expenses.findIndex(e => e.id === id);
-        if (index < 0) throw new Error('مصرف انتخاب‌شده وجود ندارد.');
+        const old=expenses[index];
+        if (!expected) throw new Error('نسخهٔ قبلی مصرف لازم است؛ فرم را دوباره باز کنید.');
+        if (!old || old.date!==expected.date || old.description!==expected.description || old.expense_type!==expected.expense_type || old.purchase_bill_no!==expected.purchase_bill_no || old.shop_name!==expected.shop_name || storedCents(old.amount_afn)!==parseScaled(expected.amount_afn,2) || storedCents(old.amount_usd)!==parseScaled(expected.amount_usd,2) || old.payer!==expected.payer || old.payment_method!==expected.payment_method || old.notes!==expected.notes) throw new Error('مصرف تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.');
         expenses[index] = expense;
-      } else expenses.unshift(expense);
+      } else { if(expected)throw new Error('نسخهٔ قبلی برای مصرف جدید قابل استفاده نیست.'); expenses.unshift(expense); }
     },
     async employees() { return structuredClone(staff); },
     async saveEmployee(id, input) {

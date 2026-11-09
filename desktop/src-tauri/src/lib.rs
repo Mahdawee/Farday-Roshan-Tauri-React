@@ -73,7 +73,7 @@ async fn save_employee(db: State<'_, Database>, id: Option<String>, input: emplo
 #[tauri::command]
 async fn list_expenses(db: State<'_, Database>) -> Result<Vec<expenses::Expense>, String> { expenses::list(&db.0).await }
 #[tauri::command]
-async fn save_expense(db: State<'_, Database>, id: Option<String>, input: expenses::ExpenseInput) -> Result<(), String> { expenses::save(&db.0, id, input).await }
+async fn save_expense(db: State<'_, Database>, id: Option<String>, input: expenses::ExpenseInput, expected: Option<expenses::ExpenseInput>) -> Result<(), String> { expenses::save(&db.0, id, input, expected).await }
 
 #[tauri::command]
 async fn list_salaries(db: State<'_, Database>) -> Result<Vec<salaries::Salary>, String> { salaries::list(&db.0).await }

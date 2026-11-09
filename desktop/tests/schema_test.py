@@ -12,6 +12,16 @@ class SchemaTest(unittest.TestCase):
         self.db.executescript(SCHEMA.read_text())
         self.db.execute("INSERT INTO customers(id,code,name,opening_cents) VALUES('c','CUS-001','مشتری',10000)")
     def tearDown(self): self.db.close()
+    def test_expense_edit_uses_atomic_compare_and_swap(self):
+        self.db.executescript((SCHEMA.parent / '0003_expenses.sql').read_text())
+        self.db.execute("INSERT INTO expenses(id,expense_date,description,expense_type,purchase_bill_no,shop_name,amount_afn_cents,amount_usd_cents,payer,payment_method,notes) VALUES('x','2025-01-01','تیل','سوخت','B','دوکان',120,340,'علی','cash','اول')")
+        source=(SCHEMA.parent.parent / 'src/expenses.rs').read_text()
+        query=re.search(r'sqlx::query\("(UPDATE expenses SET .*?)"\)',source).group(1)
+        previous=('x','2025-01-01','تیل','سوخت','B','دوکان',120,340,'علی','cash','اول')
+        update=('2025-01-01','تیل','سوخت','B','دوکان',120,340,'علی','cash','دوم')
+        self.assertEqual(self.db.execute(query,update+previous).rowcount,1)
+        self.assertEqual(self.db.execute(query,update+previous).rowcount,0)
+        self.assertEqual(self.db.execute("SELECT notes FROM expenses WHERE id='x'").fetchone()[0],'دوم')
     def test_calendar_preference_migration_is_singleton_and_validated(self):
         self.db.executescript((SCHEMA.parent / '0009_preferences.sql').read_text())
         self.assertEqual(self.db.execute("SELECT id,calendar FROM app_preferences").fetchall(), [(1,'shamsi')])

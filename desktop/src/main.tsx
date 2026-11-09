@@ -103,7 +103,7 @@ function App() {
     {batchOpen && <AttendanceBatchModal staff={staff} records={attendance} calendar={calendar} reload={refresh} close={() => setBatchOpen(false)} saved={async () => { setBatchOpen(false); try { await refresh(); setNotice('ورق روزانه ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {attendanceModal && <AttendanceModal record={attendanceModal} staff={staff} calendar={calendar} close={() => setAttendanceModal(null)} saved={async () => { setAttendanceModal(null); try { await refresh(); setNotice('حضور و غیاب ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {salaryModal && <SalaryModal salary={salaryModal} salaries={salaries} staff={staff} calendar={calendar} close={() => setSalaryModal(null)} saved={async () => { setSalaryModal(null); try { await refresh(); setNotice('معاش ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
-    {expenseModal && <ExpenseModal expense={expenseModal} calendar={calendar} close={() => setExpenseModal(null)} saved={async () => { setExpenseModal(null); try { await refresh(); setNotice('مصرف ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
+    {expenseModal && <ExpenseModal expense={expenseModal} calendar={calendar} reload={refresh} close={() => setExpenseModal(null)} saved={async () => { setExpenseModal(null); try { await refresh(); setNotice('مصرف ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {employeeModal && <EmployeeModal employee={employeeModal} calendar={calendar} close={() => setEmployeeModal(null)} saved={async () => { setEmployeeModal(null); try { await refresh(); setNotice('معلومات کارمند ذخیره شد.'); window.setTimeout(() => setNotice(''), 3500); } catch (e) { setError(String(e)); } }}/> }
     {ledgerId && <LedgerModal key={`${ledgerId}-${calendar}`} calendar={calendar} customerId={ledgerId} close={() => setLedgerId(null)}/>}
     {modal && <FormModal calendar={calendar} kind={modal} snapshot={snapshot} customerEdit={customerEdit} close={closeModal} saved={saved}/>}
@@ -381,11 +381,11 @@ function ExpenseList({ expenses, calendar, loading, edit }: { expenses: Expense[
     <div className="form-hint">این نسخه شمارهٔ رسمی سند، حساب دخل و فهرست‌های مشترک انواع مصرف و پرداخت‌کنندگان را هنوز پیاده‌سازی نکرده است.</div>
   </section>;
 }
-function ExpenseModal({ expense, calendar, close, saved }: { expense: Expense | 'new'; calendar: Calendar; close: () => void; saved: () => Promise<void> }) {
+function ExpenseModal({ expense, calendar, reload, close, saved }: { expense: Expense | 'new'; calendar: Calendar; reload: () => Promise<void>; close: () => void; saved: () => Promise<void> }) {
   const initial: ExpenseInput = expense === 'new' ? { date:todayKabul(), description:'', expense_type:'', purchase_bill_no:'', shop_name:'', amount_afn:'0', amount_usd:'0', payer:'', payment_method:'cash', notes:'' } : expense;
   const [form, setForm] = useState<ExpenseInput>(initial);
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); setError(''); setBusy(true); try { await store.saveExpense(expense === 'new' ? null : expense.id, form); await saved(); } catch (e) { setError(String(e)); } finally { setBusy(false); } };
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); setError(''); setBusy(true); try { await store.saveExpense(expense === 'new' ? null : expense.id, form, expense === 'new' ? null : expense); await saved(); } catch (e) { let message=String(e); if(message.includes('مصرف تغییر کرده یا وجود ندارد')) {try {await reload();} catch {message+=' تازه‌سازی فهرست ناموفق بود؛ برنامه را دوباره باز کنید.';}} setError(message); } finally { setBusy(false); } };
   return <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) close(); }}><div className="modal" role="dialog" aria-modal="true" aria-labelledby="expense-title"><div className="modal-head"><div><span className="eyebrow"><span/> ثبت معلومات</span><h2 id="expense-title">{expense === 'new' ? 'ثبت مصرف جدید' : 'ویرایش مصرف'}</h2><p>حداقل یکی از مبلغ‌های افغانی یا دالری باید بیشتر از صفر باشد.</p></div><button className="icon-button" type="button" aria-label="بستن" disabled={busy} onClick={close}><X size={20}/></button></div>
     <form onSubmit={submit}>{error && <div className="error" role="alert">{error}</div>}<div className="form-grid">
       <DateField key={calendar} calendar={calendar} value={form.date} onChange={date => setForm({...form,date})}/>
@@ -398,7 +398,7 @@ function ExpenseModal({ expense, calendar, close, saved }: { expense: Expense | 
       <Field label="مبلغ دالری"><input inputMode="decimal" required value={form.amount_usd} onChange={e => setForm({...form,amount_usd:e.target.value})}/></Field>
       <Field label="روش پرداخت"><select value={form.payment_method} onChange={e => setForm({...form,payment_method:e.target.value as ExpenseInput['payment_method']})}><option value="cash">نقده</option><option value="credit">باقی</option></select></Field>
       <Field label="توضیحات"><input value={form.notes} onChange={e => setForm({...form,notes:e.target.value})}/></Field>
-    </div><div className="form-hint">مبلغ‌های دو ارز جداگانه ذخیره می‌شوند و هیچ نرخ تبدیلی اعمال نمی‌شود. مصرف فعلاً به حساب دخل متصل نیست.</div><div className="modal-actions"><button type="button" className="btn secondary" disabled={busy} onClick={close}>انصراف</button><button type="submit" className="btn primary" disabled={busy}>{busy ? 'در حال ثبت...' : 'ذخیره معلومات'} <Check size={17}/></button></div></form>
+    </div><div className="form-hint">مبلغ‌های دو ارز جداگانه ذخیره می‌شوند و هیچ نرخ تبدیلی اعمال نمی‌شود. مصرف فعلاً به حساب دخل متصل نیست. در صورت تغییر هم‌زمان، فرم باید دوباره باز شود؛ تاریخچهٔ ممیزی وجود ندارد.</div><div className="modal-actions"><button type="button" className="btn secondary" disabled={busy} onClick={close}>انصراف</button><button type="submit" className="btn primary" disabled={busy}>{busy ? 'در حال ثبت...' : 'ذخیره معلومات'} <Check size={17}/></button></div></form>
   </div></div>;
 }
 

@@ -567,3 +567,20 @@ test('calendar save failure retains the old selection, and preview preference is
   await select.selectOption('miladi'); await expect(select).toHaveValue('miladi'); await expect(page.getByRole('alert')).toHaveCount(0);
   await page.reload(); await expect(page.getByLabel('تقویم نمایش')).toHaveValue('shamsi');
 });
+
+test('expense editing rejects stale data and refreshes the list for reopening',async({page})=>{
+  await page.goto('/'); await page.getByRole('button',{name:'مصارف',exact:true}).click(); await page.getByRole('button',{name:'مصرف جدید'}).click();
+  let dialog=page.getByRole('dialog'); await dialog.getByLabel('شرح مصرف').fill('مصرف همزمان'); await dialog.getByLabel('مبلغ افغانی').fill('10'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('row').filter({hasText:'مصرف همزمان'}).getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
+  await dialog.getByLabel('مبلغ دالری').fill('5');
+  await page.evaluate(async()=>{
+    const modulePath=performance.getEntriesByType('resource').map(x=>x.name).find(x=>new URL(x).pathname==='/src/store.ts')!; const {store}=await import(/* @vite-ignore */ modulePath);
+    const old=(await store.expenses()).find((e:{description:string})=>e.description==='مصرف همزمان'); await store.saveExpense(old.id,{...old,notes:'تغییر دیگر'},old);
+  });
+  await dialog.getByRole('button',{name:'ذخیره معلومات'}).click(); await expect(dialog.getByRole('alert')).toContainText('مصرف تغییر کرده');
+  await expect(dialog.getByLabel('مبلغ دالری')).toHaveValue('5');
+  await dialog.getByRole('button',{name:'انصراف'}).click();
+  await page.getByRole('row').filter({hasText:'مصرف همزمان'}).getByRole('button',{name:'ویرایش'}).click(); dialog=page.getByRole('dialog');
+  await expect(dialog.getByLabel('توضیحات')).toHaveValue('تغییر دیگر'); await dialog.getByLabel('مبلغ دالری').fill('5'); await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await expect(page.getByRole('row').filter({hasText:'مصرف همزمان'})).toContainText('5');
+});

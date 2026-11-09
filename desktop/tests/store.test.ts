@@ -78,9 +78,9 @@ describe('expense records', () => {
     await s.saveExpense(null, expense);
     const [saved] = await s.expenses();
     expect(saved.amount_afn).toBe('100.50'); expect(saved.amount_usd).toBe('5.25');
-    await s.saveExpense(saved.id, { ...expense, amount_afn:'0', payment_method:'credit' });
+    await s.saveExpense(saved.id, { ...expense, amount_afn:'0', payment_method:'credit' },saved);
     expect(await s.expenses()).toMatchObject([{ id:saved.id, amount_afn:'0.00', amount_usd:'5.25', payment_method:'credit' }]);
-    await expect(s.saveExpense('missing', expense)).rejects.toThrow();
+    await expect(s.saveExpense('missing', expense,expense)).rejects.toThrow();
     expect(await s.expenses()).toHaveLength(1);
   });
 });
@@ -315,4 +315,16 @@ it('calendar preference is validated and persists only for the life of the demo 
   await s.setCalendarPreference('miladi'); expect(await s.calendarPreference()).toBe('miladi');
   await expect(s.setCalendarPreference('bad' as 'miladi')).rejects.toThrow(); expect(await s.calendarPreference()).toBe('miladi');
   expect(await createDemoStore(false).calendarPreference()).toBe('shamsi');
+});
+
+it('rejects stale expense edits without losing the winning change',async()=>{
+  const s=createDemoStore(false);
+  const input={date:'2025-01-01',description:'تیل',expense_type:'سوخت',purchase_bill_no:'',shop_name:'',amount_afn:'10',amount_usd:'5',payer:'',payment_method:'cash' as const,notes:'اول'};
+  await s.saveExpense(null,input); const [old]=await s.expenses();
+  await s.saveExpense(old.id,{...old,notes:'جدید'},old);
+  await expect(s.saveExpense(old.id,{...old,amount_usd:'8'},old)).rejects.toThrow('تغییر کرده');
+  await expect(s.saveExpense(old.id,input)).rejects.toThrow('نسخهٔ قبلی');
+  expect((await s.expenses())[0]).toMatchObject({notes:'جدید',amount_usd:'5.00'});
+  const [fresh]=await s.expenses(); await s.saveExpense(fresh.id,{...fresh,amount_usd:'8'},fresh);
+  expect((await s.expenses())[0]).toMatchObject({notes:'جدید',amount_usd:'8.00'});
 });
