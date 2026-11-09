@@ -70,7 +70,13 @@ pub(crate) async fn authenticate(db:&SqlitePool,login:&str,password:&str)->Resul
     let row=row.ok_or(invalid)?;
     let hash:String=row.try_get("password_hash").map_err(db_error)?;
     if !row.try_get::<bool,_>("active").map_err(db_error)? || !verify_password(password,&hash) {return Err(invalid.into());}
-    user(&row)
+    // Recheck after the expensive hash verification: a concurrent disable, reset,
+    // or role change must not return the stale user that was just verified.
+    let id:String=row.try_get("id").map_err(db_error)?;
+    let revision:i64=row.try_get("auth_revision").map_err(db_error)?;
+    let fresh=sqlx::query("SELECT id,username,full_name,role,active,auth_revision FROM local_users WHERE id=? AND active=1 AND auth_revision=? AND password_hash=?")
+        .bind(id).bind(revision).bind(hash).fetch_optional(db).await.map_err(db_error)?.ok_or(invalid)?;
+    user(&fresh)
 }
 pub(crate) async fn create(db:&SqlitePool,actor_id:&str,login:&str,name:&str,password:&str,role:&str)->Result<User,String> {
     let login=username(login)?; let name=full_name(name)?;
@@ -101,6 +107,33 @@ pub(crate) async fn set_access(db:&SqlitePool,actor_id:&str,id:&str,role:&str,ac
     tx.commit().await.map_err(db_error)?; Ok(())
 }
 
+/// Change the user's own password; the old hash/revision is compared under the write lock.
+pub(crate) async fn change_password(db:&SqlitePool,id:&str,current:&str,new_password:&str)->Result<(),String> {
+    let row=sqlx::query("SELECT id,username,full_name,role,active,auth_revision,password_hash FROM local_users WHERE id=?")
+        .bind(id).fetch_optional(db).await.map_err(db_error)?.ok_or("رمز فعلی نادرست است.")?;
+    let old=user(&row)?; let hash:String=row.try_get("password_hash").map_err(db_error)?;
+    if !old.active || !verify_password(current,&hash) {return Err("رمز فعلی نادرست است.".into());}
+    let new_hash=hash_password(new_password)?;
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    let changed=sqlx::query("UPDATE local_users SET password_hash=?,auth_revision=auth_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND active=1 AND auth_revision=? AND password_hash=?")
+        .bind(new_hash).bind(id).bind(old.auth_revision).bind(hash).execute(&mut *tx).await.map_err(db_error)?.rows_affected();
+    if changed!=1 {return Err("حساب تغییر کرده است؛ دوباره وارد شوید.".into());}
+    let mut updated=old.clone();updated.auth_revision+=1;
+    record_user(&mut tx,id,id,"update",Some(&public_json(&old)?),&public_json(&updated)?).await?;
+    tx.commit().await.map_err(db_error)?;Ok(())
+}
+/// Administrator password reset; no password or password hash enters the journal.
+pub(crate) async fn reset_password(db:&SqlitePool,actor_id:&str,id:&str,new_password:&str)->Result<(),String> {
+    let new_hash=hash_password(new_password)?;
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;require_admin(&mut tx,actor_id).await?;
+    let row=sqlx::query("SELECT id,username,full_name,role,active,auth_revision FROM local_users WHERE id=?").bind(id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or("کاربر وجود ندارد.")?;
+    let old=user(&row)?;
+    sqlx::query("UPDATE local_users SET password_hash=?,auth_revision=auth_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(new_hash).bind(id).execute(&mut *tx).await.map_err(db_error)?;
+    let mut updated=old.clone();updated.auth_revision+=1;
+    record_user(&mut tx,actor_id,id,"update",Some(&public_json(&old)?),&public_json(&updated)?).await?;
+    tx.commit().await.map_err(db_error)?;Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*; use crate::service::open_database;
@@ -126,6 +159,23 @@ mod tests {
         assert!(hash.starts_with("$argon2id$")); assert!(!hash.contains("long secure password"));
         let events:Vec<String>=sqlx::query_scalar("SELECT COALESCE(before_json,'') || COALESCE(after_json,'') FROM audit_events WHERE entity='local_users'").fetch_all(&db).await.unwrap();
         assert_eq!(events.len(),3); assert!(events.iter().all(|s|!s.contains("password") && !s.contains("argon2")));
+        db.close().await;std::fs::remove_file(path).unwrap();
+    }
+    #[tokio::test]
+    async fn password_changes_are_revisioned_and_never_logged() {
+        let path=std::env::temp_dir().join(format!("password-changes-{}.sqlite3",Uuid::new_v4()));let db=open_database(path.clone()).await.unwrap();
+        let admin=bootstrap(&db,"admin","مدیر","old-password-long").await.unwrap();
+        let staff=create(&db,&admin.id,"staff","کارمند","staff-password-long","staff").await.unwrap();
+        assert!(change_password(&db,&admin.id,"bad-old-password","new-password-long").await.is_err());
+        change_password(&db,&admin.id,"old-password-long","new-password-long").await.unwrap();
+        assert!(authenticate(&db,"admin","old-password-long").await.is_err());
+        assert_eq!(authenticate(&db,"admin","new-password-long").await.unwrap().auth_revision,2);
+        assert!(reset_password(&db,&staff.id,&admin.id,"unauthorized-password").await.is_err());
+        reset_password(&db,&admin.id,&staff.id,"reset-password-long").await.unwrap();
+        assert!(authenticate(&db,"staff","staff-password-long").await.is_err());
+        assert_eq!(authenticate(&db,"staff","reset-password-long").await.unwrap().auth_revision,2);
+        let data:Vec<String>=sqlx::query_scalar("SELECT COALESCE(before_json,'') || COALESCE(after_json,'') FROM audit_events WHERE entity='local_users'").fetch_all(&db).await.unwrap();
+        assert!(data.iter().all(|s|!s.contains("password") && !s.contains("argon2")));
         db.close().await;std::fs::remove_file(path).unwrap();
     }
     #[tokio::test]
