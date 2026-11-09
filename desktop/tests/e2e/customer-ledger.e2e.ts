@@ -450,3 +450,31 @@ test('long receipt details print across pages without clipping the notes',async(
   const notes=dialog.locator('.details-text').filter({hasText:'Row 110 abc'}); expect(await notes.evaluate(el=>getComputedStyle(el).whiteSpace)).toBe('pre-wrap');
   const pdf=await page.pdf({format:'A4'}); const pageCount=(pdf.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length; expect(pageCount).toBeGreaterThan(1);
 });
+
+test('manual cashbook records independent movements and warns of negative balances', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('تقویم نمایش').selectOption('miladi');
+  await page.getByRole('button', {name:'دفتر دستی دخل',exact:true}).click();
+  await expect(page.getByText('هیچ فروش، رسید، مصرف یا معاش')).toBeVisible();
+  await page.getByLabel('تاریخ حرکت (میلادی)').fill('2025/01/01');
+  await page.getByLabel('شرح حرکت').fill('مانده آغازین');
+  await page.getByLabel('مبلغ افغانی').fill('100');
+  await page.getByLabel('مبلغ دالر').fill('5');
+  await page.getByRole('button',{name:'ثبت حرکت دستی'}).click();
+  await expect(page.getByRole('status')).toContainText('حرکت دستی ثبت شد');
+  await page.getByLabel('تاریخ حرکت (میلادی)').fill('2025/01/02');
+  await page.getByLabel('نوع حرکت').selectOption('out');
+  await page.getByLabel('شرح حرکت').fill('خروجی آزمایشی');
+  await page.getByLabel('مبلغ افغانی').fill('20');
+  await page.getByLabel('مبلغ دالر').fill('8');
+  await page.getByRole('button',{name:'ثبت حرکت دستی'}).click();
+  await page.getByLabel('از تاریخ (میلادی)').fill('2025/01/02');
+  await page.getByLabel('تا تاریخ (میلادی)').fill('2025/01/02');
+  await expect(page.getByRole('row',{name:/ماندهٔ آغاز/})).toContainText('100');
+  await expect(page.getByRole('row',{name:/ماندهٔ پایان/})).toContainText('80');
+  await expect(page.getByRole('row',{name:/ماندهٔ پایان/})).toContainText('-3');
+  await expect(page.getByRole('alert')).toContainText('منفی است');
+  await expect(page.getByRole('row',{name:/خروجی آزمایشی/})).toBeVisible();
+  await page.getByLabel('تقویم نمایش').selectOption('shamsi');
+  await expect(page.getByLabel('تاریخ حرکت (شمسی)')).toBeVisible();
+});

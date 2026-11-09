@@ -266,3 +266,26 @@ it('allocates independent local numbers and preserves them through edits',async(
   const id=page.rows[0].id; await s.updateSale(id,{...sale,date:'2026-01-01'},sale); expect((await s.transactionDetail('sale',id)).document_number).toBe('S-000001');
   await s.addReceipt({customer_id,date:'2025-01-01',amount:'1',source:'debt'}); const rec=(await s.transactions({...q,kind:'receipt',search:'R-000001'})).rows[0]; expect(rec.document_number).toBe('R-000001');
 });
+
+describe('manual cashbook', () => {
+  it('computes inclusive ranges over all rows and separates currencies from business records', async () => {
+    const s=createDemoStore(false);
+    const entry={date:'2025-01-01', direction:'in' as const, description:'مانده',amount_afn:'100',amount_usd:'5'};
+    await s.addCashbox(entry);
+    await s.addCashbox({...entry,date:'2025-01-02',direction:'out',amount_afn:'20',amount_usd:'8'});
+    for(let i=0;i<30;i++) await s.addCashbox({...entry,date:'2025-01-03',amount_afn:'1',amount_usd:'0'});
+    await s.addCashbox({...entry,date:'2025-01-04',amount_afn:'999'});
+    await s.addCustomer({code:'C',name:'مشتری',phone:'',opening:'0'});
+    const id=(await s.snapshot()).customers[0].id;
+    await s.addSale({customer_id:id,date:'2025-01-03',material:'ریگ',volume:'1',unit_price:'100',freight:'0',payment_type:'cash'});
+    const q={from:'2025-01-02',to:'2025-01-03',page:0}; const result=await s.cashbox(q);
+    expect(result).toMatchObject({total:31,opening_afn:'100.00',opening_usd:'5.00',in_afn:'30.00',out_afn:'20.00',closing_afn:'110.00',closing_usd:'-3.00'});
+    expect(result.rows).toHaveLength(25); expect((await s.cashbox({...q,page:1})).rows).toHaveLength(6);
+    await expect(s.addCashbox({...entry,description:'   '})).rejects.toThrow();
+    await expect(s.addCashbox({...entry,amount_afn:'0',amount_usd:'0'})).rejects.toThrow();
+    await expect(s.addCashbox({...entry,amount_afn:'-1'})).rejects.toThrow();
+    await expect(s.addCashbox({...entry,date:'2025-02-29'})).rejects.toThrow();
+    await expect(s.cashbox({...q,from:'2025-01-04'})).rejects.toThrow();
+    expect((await s.cashbox(q)).total).toBe(31);
+  });
+});

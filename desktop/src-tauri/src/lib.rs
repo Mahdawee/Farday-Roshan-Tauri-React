@@ -5,6 +5,7 @@ mod salaries;
 mod attendance;
 mod transactions;
 mod reports;
+mod cashbox;
 mod restore;
 use service::{CustomerInput, ReceiptInput, SaleInput, Snapshot, Ledger};
 use sqlx::SqlitePool;
@@ -97,6 +98,11 @@ async fn range_summary(db: State<'_, Database>, from: String, to: String) -> Res
 #[tauri::command]
 async fn export_range_csv(db: State<'_, Database>, from: String, to: String, expected: reports::RangeSummary, path: String) -> Result<(), String> { reports::export_csv(&db.0, from, to, expected, std::path::Path::new(&path)).await }
 
+#[tauri::command]
+async fn cashbox_page(db: State<'_, Database>, query: cashbox::CashboxQuery) -> Result<cashbox::CashboxPage,String> {cashbox::page(&db.0,query).await}
+#[tauri::command]
+async fn add_cashbox_entry(db: State<'_, Database>, input: cashbox::CashboxInput) -> Result<(),String> {cashbox::add(&db.0,input).await}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -108,7 +114,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail, range_summary, export_range_csv])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail, range_summary, export_range_csv, cashbox_page, add_cashbox_entry])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }

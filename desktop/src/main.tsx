@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ArrowDownLeft, ArrowLeft, ArrowUpLeft, Archive, Box, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock3, FileBarChart, LayoutDashboard, Menu, Package, Plus, ReceiptText, Search, Settings, ShieldCheck, ShoppingCart, Users, Wallet, X } from 'lucide-react';
-import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, TransactionPage, TransactionDetail, RangeSummary, SaleDetails, ReceiptDetails, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
+import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, TransactionPage, TransactionDetail, RangeSummary, CashboxPage, SaleDetails, ReceiptDetails, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
 import { inDesktop, store } from './store';
 import { BackupInfo, chooseBackup, createBackup, restoreBackup, exportRangeCsv } from './backup';
 import { attendanceLabels, summarizeAttendance, monthlyAttendance } from './attendance';
@@ -10,9 +10,9 @@ import { summarizeExpenses } from './expenses';
 import { Calendar, displayCalendarDate, normalizeDateDigits, parseCalendarDate, todayKabul } from './calendar';
 import './style.css';
 
-type Page = 'dashboard' | 'customers' | 'sales' | 'receipts' | 'employees' | 'expenses' | 'salaries' | 'attendance' | 'attendance-report' | 'financial-report' | 'backup';
+type Page = 'dashboard' | 'customers' | 'sales' | 'receipts' | 'employees' | 'expenses' | 'salaries' | 'attendance' | 'attendance-report' | 'financial-report' | 'cashbox' | 'backup';
 type Modal = 'customer' | 'sale' | 'receipt' | null;
-const pageTitles: Record<Page, string> = { dashboard: 'داشبورد', customers: 'مشتریان', sales: 'فروشات', receipts: 'رسیدات', employees: 'کارمندان', expenses: 'مصارف', salaries: 'معاشات', attendance: 'حضور و غیاب', 'attendance-report': 'راپور حضور ماهانه', 'financial-report': 'راپور مالی بازه‌ای', backup: 'پشتیبان‌گیری' };
+const pageTitles: Record<Page, string> = { dashboard: 'داشبورد', customers: 'مشتریان', sales: 'فروشات', receipts: 'رسیدات', employees: 'کارمندان', expenses: 'مصارف', salaries: 'معاشات', attendance: 'حضور و غیاب', 'attendance-report': 'راپور حضور ماهانه', 'financial-report': 'راپور مالی بازه‌ای', cashbox: 'دفتر دستی دخل', backup: 'پشتیبان‌گیری' };
 const blankSaleDetails:SaleDetails={bill_no:'',driver_name:'',vehicle_plate:'',destination:'',notes:''};
 const blankReceiptDetails:ReceiptDetails={related_bill_no:'',received_by:'',notes:''};
 const empty: Snapshot = { customers: [], entries: [], credit_sales: '0.00', receipts: '0.00', total_balance: '0.00' };
@@ -52,7 +52,7 @@ function App() {
       <div className="brand"><div className="brand-mark"><Box size={23} strokeWidth={1.8}/></div><div><strong>فردای روشن</strong><span>سیستم مدیریت شرکت</span></div></div>
       <div className="side-label">فضای کاری</div>
       <nav className="nav" aria-label="منوی اصلی">
-        {([[LayoutDashboard, 'داشبورد', 'dashboard'], [Users, 'مشتریان', 'customers'], [Users, 'کارمندان', 'employees'], [ClipboardList, 'حضور و غیاب', 'attendance'], [FileBarChart, 'راپور حضور ماهانه', 'attendance-report'], [FileBarChart, 'راپور مالی بازه‌ای', 'financial-report'], [Wallet, 'مصارف', 'expenses'], [CircleDollarSign, 'معاشات', 'salaries'], [ShoppingCart, 'فروشات', 'sales'], [ReceiptText, 'رسیدات', 'receipts'], [Archive, 'پشتیبان‌گیری', 'backup']] as const).map(([Icon,label,p]) => <button key={p} className={page === p ? 'active' : ''} onClick={() => navigate(p)}><Icon size={19}/><span>{label}</span>{page === p && <span className="nav-dot"/>}</button>)}
+        {([[LayoutDashboard, 'داشبورد', 'dashboard'], [Users, 'مشتریان', 'customers'], [Users, 'کارمندان', 'employees'], [ClipboardList, 'حضور و غیاب', 'attendance'], [FileBarChart, 'راپور حضور ماهانه', 'attendance-report'], [FileBarChart, 'راپور مالی بازه‌ای', 'financial-report'], [Wallet, 'دفتر دستی دخل', 'cashbox'], [Wallet, 'مصارف', 'expenses'], [CircleDollarSign, 'معاشات', 'salaries'], [ShoppingCart, 'فروشات', 'sales'], [ReceiptText, 'رسیدات', 'receipts'], [Archive, 'پشتیبان‌گیری', 'backup']] as const).map(([Icon,label,p]) => <button key={p} className={page === p ? 'active' : ''} onClick={() => navigate(p)}><Icon size={19}/><span>{label}</span>{page === p && <span className="nav-dot"/>}</button>)}
       </nav>
       <div className="side-label section-label">در مراحل بعدی</div>
       <div className="nav pending">{([[FileBarChart,'راپورها'],[Settings,'تنظیمات']] as const).map(([Icon,label]) => <div key={label}><Icon size={18}/><span>{label}</span><small>به‌زودی</small></div>)}</div>
@@ -65,7 +65,7 @@ function App() {
         {inDesktop && <div className="demo-banner"><ShieldCheck size={18}/><span><b>نسخهٔ اولیه:</b> هنوز ورود کاربران و انتقال اطلاعات آماده نیستند؛ بازیابی نیازمند آزمایش بیشتر است؛ برای داده‌های واقعی شرکت استفاده نشود.</span></div>}
         {notice && <div className="notice"><Check size={17}/>{notice}</div>}
         {error && <div className="error" role="alert">{error}</div>}
-        <div className="page-heading"><div><div className="eyebrow"><span/> مدیریت کسب‌وکار</div><h1>{page === 'dashboard' ? 'سلام، به فردای روشن خوش آمدید' : pageTitles[page]}</h1><p>{page === 'dashboard' ? 'نمایی روشن از فعالیت‌ها و حساب‌های شرکت در یک نگاه.' : page === 'customers' ? 'مشتریان و مانده حساب آن‌ها را در یک جا مدیریت کنید.' : page === 'employees' ? 'معلومات، وضعیت و معاش پایهٔ کارمندان را مدیریت کنید.' : page === 'attendance' ? 'حضور و غیاب هر کارمند را برای هر روز ثبت کنید.' : page === 'attendance-report' ? 'خلاصهٔ رکوردهای حضور ثبت‌شده در هر ماه را بررسی کنید.' : page === 'financial-report' ? 'جمع عملیات ثبت‌شده را در یک بازهٔ تاریخ بررسی کنید.' : page === 'salaries' ? 'پرداخت‌های معاش و دورهٔ هر کارمند را ثبت و بررسی کنید.' : page === 'expenses' ? 'مصارف افغانی و دالری را جداگانه ثبت و بررسی کنید.' : page === 'sales' ? 'فروشات نقدی و قرضه را ثبت و دنبال کنید.' : page === 'receipts' ? 'رسیدهای مشتریان و پرداخت‌های دریافتی را ثبت کنید.' : 'یک نسخهٔ جداگانه از معلومات محلی تهیه کنید.'}</p></div><div className="heading-actions">{page !== 'backup' && page !== 'attendance-report' && page !== 'financial-report' && <>{page === 'attendance' && <button className="btn secondary" onClick={() => setBatchOpen(true)}><ClipboardList size={17}/> ورق روزانه</button>}{page === 'dashboard' && <button className="btn secondary" onClick={() => setModal('receipt')}><Plus size={17}/> ثبت رسید</button>}<button className="btn primary" onClick={() => page === 'employees' ? setEmployeeModal('new') : page === 'expenses' ? setExpenseModal('new') : page === 'salaries' ? setSalaryModal('new') : page === 'attendance' ? setAttendanceModal('new') : setModal(page === 'customers' ? 'customer' : page === 'receipts' ? 'receipt' : 'sale')}><Plus size={18}/>{page === 'customers' ? 'مشتری جدید' : page === 'employees' ? 'کارمند جدید' : page === 'expenses' ? 'مصرف جدید' : page === 'salaries' ? 'پرداخت معاش جدید' : page === 'attendance' ? 'ثبت حضور جدید' : page === 'receipts' ? 'رسید جدید' : 'فروش جدید'}</button></>}</div></div>
+        <div className="page-heading"><div><div className="eyebrow"><span/> مدیریت کسب‌وکار</div><h1>{page === 'dashboard' ? 'سلام، به فردای روشن خوش آمدید' : pageTitles[page]}</h1><p>{page === 'dashboard' ? 'نمایی روشن از فعالیت‌ها و حساب‌های شرکت در یک نگاه.' : page === 'customers' ? 'مشتریان و مانده حساب آن‌ها را در یک جا مدیریت کنید.' : page === 'employees' ? 'معلومات، وضعیت و معاش پایهٔ کارمندان را مدیریت کنید.' : page === 'attendance' ? 'حضور و غیاب هر کارمند را برای هر روز ثبت کنید.' : page === 'attendance-report' ? 'خلاصهٔ رکوردهای حضور ثبت‌شده در هر ماه را بررسی کنید.' : page === 'financial-report' ? 'جمع عملیات ثبت‌شده را در یک بازهٔ تاریخ بررسی کنید.' : page === 'cashbox' ? 'حرکت‌های نقدی دستی را مستقل از سایر بخش‌ها ثبت کنید.' : page === 'salaries' ? 'پرداخت‌های معاش و دورهٔ هر کارمند را ثبت و بررسی کنید.' : page === 'expenses' ? 'مصارف افغانی و دالری را جداگانه ثبت و بررسی کنید.' : page === 'sales' ? 'فروشات نقدی و قرضه را ثبت و دنبال کنید.' : page === 'receipts' ? 'رسیدهای مشتریان و پرداخت‌های دریافتی را ثبت کنید.' : 'یک نسخهٔ جداگانه از معلومات محلی تهیه کنید.'}</p></div><div className="heading-actions">{page !== 'backup' && page !== 'attendance-report' && page !== 'financial-report' && page !== 'cashbox' && <>{page === 'attendance' && <button className="btn secondary" onClick={() => setBatchOpen(true)}><ClipboardList size={17}/> ورق روزانه</button>}{page === 'dashboard' && <button className="btn secondary" onClick={() => setModal('receipt')}><Plus size={17}/> ثبت رسید</button>}<button className="btn primary" onClick={() => page === 'employees' ? setEmployeeModal('new') : page === 'expenses' ? setExpenseModal('new') : page === 'salaries' ? setSalaryModal('new') : page === 'attendance' ? setAttendanceModal('new') : setModal(page === 'customers' ? 'customer' : page === 'receipts' ? 'receipt' : 'sale')}><Plus size={18}/>{page === 'customers' ? 'مشتری جدید' : page === 'employees' ? 'کارمند جدید' : page === 'expenses' ? 'مصرف جدید' : page === 'salaries' ? 'پرداخت معاش جدید' : page === 'attendance' ? 'ثبت حضور جدید' : page === 'receipts' ? 'رسید جدید' : 'فروش جدید'}</button></>}</div></div>
         {page === 'dashboard' && <>
           <div className="stats-grid"><Stat icon={<Users/>} label="مجموع مشتریان" value={String(snapshot.customers.length)} unit="مشتری" note="مشتریان ثبت‌شده" color="teal"/><Stat icon={<ShoppingCart/>} label="فروشات قرضه" value={displayMoney(snapshot.credit_sales)} unit="افغانی" note="مجموع تمام دوره‌ها" color="blue"/><Stat icon={<ArrowDownLeft/>} label="رسیدات دریافتی" value={displayMoney(snapshot.receipts)} unit="افغانی" note="شامل تمام منابع رسید" color="green"/><Stat icon={<Wallet/>} label="مانده حساب مشتریان" value={displayMoney(snapshot.total_balance)} unit="افغانی" note="مانده خالص همه مشتریان" color="amber"/></div>
           <div className="content-grid"><section className="panel activity-panel"><div className="panel-head"><div><h2>آخرین فعالیت‌ها</h2><p>آخرین فروشات و رسیدهای ثبت‌شده</p></div><button className="text-button" onClick={() => navigate('sales')}>همه فروشات <ArrowLeft size={15}/></button></div><Entries entries={recent.slice(0,6)} loading={loading} calendar={calendar}/></section><section className="panel quick-panel"><div className="panel-head"><div><h2>دسترسی سریع</h2><p>کارهای روزانه را سریع‌تر انجام دهید</p></div></div><div className="quick-list"><Quick icon={<Users/>} title="مشتری جدید" text="افزودن به فهرست مشتریان" onClick={() => setModal('customer')}/><Quick icon={<ShoppingCart/>} title="ثبت فروش" text="ایجاد یک فروش جدید" onClick={() => setModal('sale')}/><Quick icon={<ReceiptText/>} title="ثبت رسید" text="ثبت مبلغ دریافتی از مشتری" onClick={() => setModal('receipt')}/></div><div className="quick-note"><Package size={19}/><div><b>یک شروع تازه</b><p>بخش‌های دیگر سیستم در مراحل بعدی اضافه می‌شوند.</p></div></div></section></div>
@@ -74,6 +74,7 @@ function App() {
         {page === 'backup' && <BackupPanel onRestored={refresh}/>}
         {page === 'attendance' && <AttendanceList key={calendar} records={attendance} staff={staff} calendar={calendar} loading={loading} edit={setAttendanceModal}/>}
         {page === 'salaries' && <SalaryList key={calendar} salaries={salaries} staff={staff} calendar={calendar} loading={loading} edit={setSalaryModal}/>}
+        {page === 'cashbox' && <Cashbox key={calendar} calendar={calendar}/>}
         {page === 'financial-report' && <FinancialReport key={calendar} calendar={calendar}/>}
         {page === 'attendance-report' && <AttendanceReport key={calendar} records={attendance} staff={staff} calendar={calendar} loading={loading}/>}
         {page === 'expenses' && <ExpenseList key={calendar} expenses={expenses} calendar={calendar} loading={loading} edit={setExpenseModal}/>}
@@ -170,6 +171,51 @@ function FinancialReport({calendar}:{calendar:Calendar}) {
       </tbody></table></div><div className="expense-feedback"><button type="button" className="btn secondary" disabled={!inDesktop || busy} onClick={exportCsv}>خروجی CSV</button> <span className="form-hint">{inDesktop ? 'فایل باید جدید باشد؛ اگر جمع‌ها تغییر کرده‌اند، ابتدا راپور را دوباره محاسبه کنید.' : 'خروجی فایل در پیش‌نمایش مرورگر فعال نیست.'}</span></div></>}
     <div className="form-hint">رسید امانت از بدهی کم نمی‌شود؛ باقی رسیدها در جمع مؤثر بر بدهی آمده‌اند. مصارف نقده و باقی هر دو شامل‌اند؛ معاش بر اساس تاریخ پرداخت است و ممکن است منفی باشد. ارزها تبدیل یا جمع نمی‌شوند. این ارقام موجودی دخل، سود یا زیان نیستند؛ قواعد و داده‌ها باید با حسابدار تطبیق شوند. چاپ و سایر راپورهای قدیمی هنوز آماده نیست.</div>
   </section>;
+}
+
+function Cashbox({calendar}:{calendar:Calendar}) {
+  const today=todayKabul();
+  const [from,setFrom]=useState(()=>displayCalendarDate(today,calendar));
+  const [to,setTo]=useState(()=>displayCalendarDate(today,calendar));
+  const [page,setPage]=useState(0); const [revision,setRevision]=useState(0);
+  const [data,setData]=useState<CashboxPage|null>(null); const [loading,setLoading]=useState(false); const [error,setError]=useState('');
+  const [date,setDate]=useState(today); const [direction,setDirection]=useState<'in'|'out'>('in'); const [description,setDescription]=useState('');
+  const [afn,setAfn]=useState('0'); const [usd,setUsd]=useState('0'); const [busy,setBusy]=useState(false); const saving=useRef(false); const [formError,setFormError]=useState(''); const [message,setMessage]=useState('');
+  useEffect(()=>{
+    let current=true; setData(null); setError('');
+    const start=parseCalendarDate(from,calendar), end=parseCalendarDate(to,calendar);
+    if(!start || !end || start>end) {setLoading(false);setError('بازهٔ تاریخ معتبر وارد کنید؛ آغاز نباید پس از پایان باشد.');return ()=>{current=false;};}
+    setLoading(true); store.cashbox({from:start,to:end,page}).then(result=>{if(current)setData(result);}).catch(e=>{if(current)setError(String(e).replace(/^Error: /,''));}).finally(()=>{if(current)setLoading(false);});
+    return ()=>{current=false;};
+  },[from,to,page,revision,calendar]);
+  const submit=async(e:React.FormEvent)=>{
+    e.preventDefault(); if(saving.current)return; saving.current=true; setBusy(true); setFormError('');setMessage('');
+    try { await store.addCashbox({date,direction,description,amount_afn:afn,amount_usd:usd}); setDescription('');setAfn('0');setUsd('0');setMessage('حرکت دستی ثبت شد. اگر تاریخ آن بیرون بازه باشد در فهرست کنونی دیده نمی‌شود.');setPage(0);setRevision(r=>r+1); }
+    catch(e){setFormError(String(e).replace(/^Error: /,''));} finally {saving.current=false;setBusy(false);}
+  };
+  return <>
+    <section className="panel listing"><div className="panel-head"><div><h2>ثبت حرکت دستی</h2><p>برای ماندهٔ آغازین هم یک حرکت ورودی یا خروجی با تاریخ و شرح ثبت کنید.</p></div></div>
+      <div className="backup-instructions restore-warning"><b>دفتر مستقل و آزمایشی است.</b> هیچ فروش، رسید، مصرف یا معاش به‌طور خودکار در آن ثبت نمی‌شود. برای اصلاح، حرکت معکوس با شرح ثبت کنید؛ ویرایش، حذف و تاریخچهٔ ممیزی وجود ندارد. این دفتر هنوز معادل کامل دخل سیستم قبلی نیست.</div>
+      <form onSubmit={submit}><fieldset disabled={busy} style={{border:0,padding:0,margin:0}}><div className="form-grid">
+        <DateField calendar={calendar} value={date} onChange={setDate} title="تاریخ حرکت"/>
+        <Field label="نوع حرکت" required><select value={direction} onChange={e=>setDirection(e.target.value as 'in'|'out')}><option value="in">ورودی نقد</option><option value="out">خروجی نقد</option></select></Field>
+        <Field label="شرح حرکت" required><input required value={description} onChange={e=>setDescription(e.target.value)}/></Field>
+        <Field label="مبلغ افغانی"><input dir="ltr" inputMode="decimal" value={afn} onChange={e=>setAfn(e.target.value)} required/></Field>
+        <Field label="مبلغ دالر"><input dir="ltr" inputMode="decimal" value={usd} onChange={e=>setUsd(e.target.value)} required/></Field>
+      </div><div className="expense-feedback"><button className="btn primary" type="submit">{busy?'در حال ثبت...':'ثبت حرکت دستی'}</button></div></fieldset></form>
+      {formError && <div className="error" role="alert">{formError}</div>}{message && <div className="notice" role="status">{message}</div>}
+    </section>
+    <section className="panel listing"><div className="panel-head"><div><h2>مانده و حرکت‌های بازه</h2><p>هر دو تاریخ شامل‌اند. ماندهٔ آغاز از تمام حرکت‌های پیش از تاریخ آغاز محاسبه می‌شود؛ ارزها تبدیل یا با هم جمع نمی‌شوند.</p></div></div>
+      <div className="expense-filters"><Field label={`از تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`}><input dir="ltr" value={from} onChange={e=>{setFrom(e.target.value);setPage(0);}}/></Field><Field label={`تا تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`}><input dir="ltr" value={to} onChange={e=>{setTo(e.target.value);setPage(0);}}/></Field></div>
+      {error && <div className="error" role="alert">{error}</div>}{loading && <div className="empty">در حال بارگذاری...</div>}
+      {data && <><div className="table-wrap"><table><thead><tr><th>خلاصه</th><th>افغانی</th><th>دالر</th></tr></thead><tbody>{([
+        ['ماندهٔ آغاز',data.opening_afn,data.opening_usd],['ورودی بازه',data.in_afn,data.in_usd],['خروجی بازه',data.out_afn,data.out_usd],['ماندهٔ پایان',data.closing_afn,data.closing_usd]
+      ] as [string,string,string][]).map(([label,a,u])=><tr key={label}><th>{label}</th><td dir="ltr">{displayMoney(a)}</td><td dir="ltr">{displayMoney(u)}</td></tr>)}</tbody></table></div>
+      {(data.opening_afn.startsWith('-') || data.opening_usd.startsWith('-') || data.closing_afn.startsWith('-') || data.closing_usd.startsWith('-')) && <div className="error" role="alert">هشدار: ماندهٔ آغاز یا پایان حداقل یک ارز منفی است؛ ثبت‌ها را بررسی کنید.</div>}
+      <div className="table-wrap"><table><thead><tr><th>تاریخ</th><th>نوع</th><th>شرح</th><th>افغانی</th><th>دالر</th></tr></thead><tbody>{data.rows.map(row=><tr key={row.id}><td dir="ltr">{displayCalendarDate(row.date,calendar)}</td><td>{row.direction==='in'?'ورودی':'خروجی'}</td><td className="details-text">{row.description}</td><td dir="ltr">{displayMoney(row.amount_afn)}</td><td dir="ltr">{displayMoney(row.amount_usd)}</td></tr>)}</tbody></table>{!data.rows.length && <div className="empty">حرکتی در این بازه ثبت نشده است.</div>}</div>
+      <div className="pagination"><button className="btn secondary" disabled={page===0} onClick={()=>setPage(p=>p-1)}>صفحهٔ قبلی</button><span>صفحهٔ {page+1} · {data.total} حرکت</span><button className="btn secondary" disabled={(page+1)*data.page_size>=data.total} onClick={()=>setPage(p=>p+1)}>صفحهٔ بعدی</button></div></>}
+    </section>
+  </>;
 }
 
 function AttendanceReport({ records, staff, calendar, loading }: {records:Attendance[]; staff:Employee[]; calendar:Calendar; loading:boolean}) {

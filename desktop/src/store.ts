@@ -1,8 +1,10 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { normalizeDateDigits } from './calendar';
-import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary, SaleDetails, ReceiptDetails } from './domain';
+import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary, SaleDetails, ReceiptDetails, CashboxEntry, CashboxPage } from './domain';
 
 const tauriStore: Store = {
+  cashbox: query => invoke<CashboxPage>('cashbox_page',{query}),
+  addCashbox: input => invoke('add_cashbox_entry',{input}),
   rangeSummary: (from,to) => invoke<RangeSummary>('range_summary', {from,to}),
   snapshot: () => invoke<Snapshot>('snapshot'),
   transactions: query => invoke<TransactionPage>('list_transactions', { query }),
@@ -36,6 +38,7 @@ export function createDemoStore(seed = true): Store {
   const attendance: Attendance[] = [];
   const salaries: Salary[] = [];
   const expenses: Expense[] = [];
+  const cashboxEntries: CashboxEntry[] = [];
   type DemoEntry = Entry & { document_number:string; customer_id: string; affects_balance: boolean; subtype: string; sale?: { material:string; volume:string; unit_price:string; freight:string; details?:SaleDetails }; receiptDetails?:ReceiptDetails };
   const entries: DemoEntry[] = [
     { id: 'demo-e1', document_number:'S-000002', customer_id: 'demo-1', subtype: 'credit', sale: {material:'ماسه اول',volume:'90.000',unit_price:'600.00',freight:'0.00'}, affects_balance: true, kind: 'sale', date: '2026-11-08', customer_name: 'شرکت ساختمانی امید', detail: 'ماسه اول · باقی', amount: '54000.00' },
@@ -67,6 +70,22 @@ export function createDemoStore(seed = true): Store {
     if (Number(m[1]) < 1 || !Number.isFinite(d.getTime()) || d.toISOString().slice(0, 10) !== date) throw new Error('تاریخ میلادی معتبر وارد کنید.');
   };
   return {
+    async addCashbox(input) {
+      validateDate(input.date); if (!['in','out'].includes(input.direction)) throw new Error('نوع حرکت دخل معتبر نیست.');
+      const description=text(input.description,1000); if (!description) throw new Error('شرح معتبر برای حرکت دخل وارد کنید.');
+      const afn=parseScaled(input.amount_afn,2), usd=parseScaled(input.amount_usd,2);
+      if (!afn && !usd) throw new Error('حداقل یکی از مبلغ‌ها باید بیشتر از صفر باشد.');
+      cashboxEntries.unshift({id:crypto.randomUUID(),date:input.date,direction:input.direction,description,amount_afn:formatScaled(afn),amount_usd:formatScaled(usd)});
+    },
+    async cashbox(q) {
+      validateDate(q.from); validateDate(q.to); if(q.from>q.to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
+      if (!Number.isInteger(q.page) || q.page<0 || q.page>1000000) throw new Error('صفحه معتبر نیست.');
+      const before=cashboxEntries.filter(e=>e.date<q.from), entries=cashboxEntries.filter(e=>e.date>=q.from && e.date<=q.to);
+      const sum=(list:CashboxEntry[],currency:'amount_afn'|'amount_usd',signed=false)=>list.reduce((v,e)=>v+storedCents(e[currency])*(signed && e.direction==='out' ? -1n : 1n),0n);
+      const incoming=entries.filter(e=>e.direction==='in'), outgoing=entries.filter(e=>e.direction==='out');
+      const oa=sum(before,'amount_afn',true), ou=sum(before,'amount_usd',true), ia=sum(incoming,'amount_afn'), iu=sum(incoming,'amount_usd'), xa=sum(outgoing,'amount_afn'), xu=sum(outgoing,'amount_usd');
+      return structuredClone({rows:entries.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(q.page*25,q.page*25+25),page:q.page,page_size:25,total:entries.length,opening_afn:formatScaled(oa),opening_usd:formatScaled(ou),in_afn:formatScaled(ia),in_usd:formatScaled(iu),out_afn:formatScaled(xa),out_usd:formatScaled(xu),closing_afn:formatScaled(oa+ia-xa),closing_usd:formatScaled(ou+iu-xu)});
+    },
     async rangeSummary(from,to) {
       validateDate(from); validateDate(to); if (from>to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
       const within=(date:string)=>date>=from && date<=to;
@@ -261,6 +280,8 @@ export function createDemoStore(seed = true): Store {
 export const inDesktop = isTauri();
 // No accidental fake persistence in a production web deployment.
 export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? createDemoStore() : {
+  cashbox: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  addCashbox: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   rangeSummary: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   transactionDetail: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   transactions: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
