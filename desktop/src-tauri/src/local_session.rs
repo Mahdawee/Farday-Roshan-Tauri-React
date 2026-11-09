@@ -2,7 +2,7 @@
 //! Authorization must ultimately be checked in the same transaction as each
 //! protected operation; this prototype alone is not an access-control boundary.
 use std::{sync::Mutex, time::{Duration, Instant}};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqliteConnection, SqlitePool};
 use crate::local_users::{self, User};
 
 const IDLE:Duration=Duration::from_secs(30*60);
@@ -30,6 +30,13 @@ impl Session {
         let mut inner=self.inner.lock().map_err(|_|locked())?;inner.epoch=inner.epoch.wrapping_add(1);inner.active=None;Ok(())
     }
     pub(crate) async fn authorize(&self,db:&SqlitePool,permission:Permission)->Result<User,String> {
+        let mut connection=db.acquire().await.map_err(|_|"بررسی نشست ناموفق بود.")?;
+        self.authorize_on(&mut connection,permission).await
+    }
+    /// For writes the caller MUST first hold BEGIN IMMEDIATE and must execute
+    /// the operation on this same connection before committing. Authorization
+    /// is checked after acquiring the write lock, not before it.
+    pub(crate) async fn authorize_on(&self,connection:&mut SqliteConnection,permission:Permission)->Result<User,String> {
         let (id,revision,epoch)={
             let mut inner=self.inner.lock().map_err(|_|locked())?;
             if inner.active.as_ref().is_some_and(|a|a.last_used.elapsed()>=IDLE) {inner.active=None;}
@@ -37,7 +44,7 @@ impl Session {
             (active.id.clone(),active.revision,active.epoch)
         };
         let row=sqlx::query("SELECT id,username,full_name,role,active,auth_revision FROM local_users WHERE id=? AND active=1 AND auth_revision=?")
-            .bind(&id).bind(revision).fetch_optional(db).await.map_err(|e|{eprintln!("Session database error: {e}");"بررسی نشست ناموفق بود.".to_string()})?;
+            .bind(&id).bind(revision).fetch_optional(connection).await.map_err(|e|{eprintln!("Session database error: {e}");"بررسی نشست ناموفق بود.".to_string()})?;
         let mut inner=self.inner.lock().map_err(|_|locked())?;
         // Do not revive a session that expired or was logged out while awaiting SQLite.
         let matching=inner.active.as_ref().is_some_and(|a|a.epoch==epoch && a.id==id && a.revision==revision && a.last_used.elapsed()<IDLE);

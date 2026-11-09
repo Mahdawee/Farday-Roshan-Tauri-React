@@ -14,6 +14,8 @@ mod audit;
 mod local_users;
 #[allow(dead_code)] // Prototype until every protected operation is transactional.
 mod local_session;
+#[allow(dead_code)] // Not exposed until every operation is protected.
+mod authorized_customer;
 use service::{CustomerInput, ReceiptInput, SaleInput, Snapshot, Ledger};
 use sqlx::SqlitePool;
 use tauri::{Manager, State};

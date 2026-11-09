@@ -107,11 +107,17 @@ fn validate_customer(input: &CustomerInput) -> Result<i64, String> {
 }
 
 pub(crate) async fn add_customer(db: &SqlitePool, input: CustomerInput) -> Result<(), String> {
-    let opening = validate_customer(&input)?;
+    let mut conn=db.acquire().await.map_err(db_error)?;
+    add_customer_on(&mut conn,input).await.map(|_| ())
+}
+
+/// Shared implementation; callers can include this write in an existing transaction.
+pub(crate) async fn add_customer_on(db: &mut SqliteConnection, input: CustomerInput) -> Result<String, String> {
+    let opening = validate_customer(&input)?; let id=Uuid::new_v4().to_string();
     sqlx::query("INSERT INTO customers (id, code, name, phone, opening_cents) VALUES (?, ?, ?, ?, ?)")
-        .bind(Uuid::new_v4().to_string()).bind(input.code.trim()).bind(input.name.trim()).bind(input.phone.trim()).bind(opening)
+        .bind(&id).bind(input.code.trim()).bind(input.name.trim()).bind(input.phone.trim()).bind(opening)
         .execute(db).await.map_err(db_error)?;
-    Ok(())
+    Ok(id)
 }
 
 pub(crate) async fn update_customer(db: &SqlitePool, id: String, input: CustomerInput, expected: CustomerInput) -> Result<(), String> {
