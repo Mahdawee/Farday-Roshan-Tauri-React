@@ -44,7 +44,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
       - run: npm run build
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Run Rust tests
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml 2>&1 | Tee-Object -FilePath cargo-test.log
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content cargo-test.log -Tail 100) -join "`n"
+            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$escaped"
+            exit 1
+          }
       - name: Build experimental Windows executable
         run: npm run tauri -- build --debug --no-bundle
       - name: Upload experimental executable
