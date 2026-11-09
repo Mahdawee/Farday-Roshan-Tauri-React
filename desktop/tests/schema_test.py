@@ -25,8 +25,11 @@ class SchemaTest(unittest.TestCase):
         result = self.db.execute("SELECT c.opening_cents + COALESCE((SELECT SUM(s.total_cents) FROM sales s WHERE s.customer_id=c.id AND s.payment_type='credit'),0) - COALESCE((SELECT SUM(r.amount_cents) FROM receipts r WHERE r.customer_id=c.id AND r.source <> 'deposit'),0) FROM customers c WHERE c.id='c'").fetchone()[0]
         self.assertEqual(result, 26000)
     def test_actual_ledger_query_excludes_cash_and_keeps_deposit(self):
+        self.db.executescript((SCHEMA.parent / '0007_document_numbers.sql').read_text())
         self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s1','c','2026-01-01','ماسه',1000,20000,0,20000,'credit'),('s2','c','2026-01-02','ریگ',1000,5000,0,5000,'cash')")
         self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r1','c','2026-01-03',4000,'debt'),('r2','c','2026-01-04',5000,'deposit')")
+        self.db.execute("INSERT INTO sale_numbers(sale_id) VALUES('s1')")
+        self.db.execute("INSERT INTO receipt_numbers(receipt_id) VALUES('r1'),('r2')")
         source = (SCHEMA.parent.parent / 'src/service.rs').read_text()
         match = re.search(r'let events = sqlx::query\("(.*?)"\)', source, re.S)
         self.assertIsNotNone(match)
@@ -34,7 +37,8 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual([r[0] for r in rows], ['s1', 'r1', 'r2'])
         self.assertEqual([r[5] for r in rows], [1, 1, 0])
         running = 10000
-        for _, _, kind, _, amount, affects, _ in rows:
+        self.assertEqual([r[7] for r in rows], ['S-000001', 'R-000001', 'R-000002'])
+        for _, _, kind, _, amount, affects, _, _ in rows:
             if affects: running += amount if kind == 'sale' else -amount
         self.assertEqual(running, 26000)
 

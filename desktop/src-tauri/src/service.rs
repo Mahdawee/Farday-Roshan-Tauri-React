@@ -210,6 +210,7 @@ pub(crate) struct Ledger {
 #[derive(Serialize)]
 struct LedgerRow {
     id: String,
+    document_number: Option<String>,
     date: String,
     kind: String,
     detail: String,
@@ -227,7 +228,7 @@ pub(crate) async fn customer_ledger(db: &SqlitePool, customer_id: String) -> Res
     let opening: i64 = customer.try_get("opening_cents").map_err(db_error)?;
     // Cash sales are not part of a debt ledger. All receipts are shown; deposit
     // receipts are explicitly marked as informational and do not reduce debt.
-    let events = sqlx::query("SELECT s.id AS id, s.sale_date AS date, 'sale' AS kind, s.material AS detail, s.total_cents AS amount, 1 AS affects, s.created_at AS created FROM sales s WHERE s.customer_id=? AND s.payment_type='credit' UNION ALL SELECT r.id, r.receipt_date, 'receipt', CASE r.source WHEN 'debt' THEN 'باقی داری' WHEN 'deposit' THEN 'امانت' WHEN 'statement' THEN 'بیانیه' ELSE 'پیش پرداخت' END, r.amount_cents, CASE WHEN r.source='deposit' THEN 0 ELSE 1 END, r.created_at FROM receipts r WHERE r.customer_id=? ORDER BY date ASC, created ASC, id ASC")
+    let events = sqlx::query("SELECT s.id AS id, s.sale_date AS date, 'sale' AS kind, s.material AS detail, s.total_cents AS amount, 1 AS affects, s.created_at AS created, CASE WHEN n.number IS NULL THEN NULL ELSE printf('S-%06d',n.number) END AS document_number FROM sales s LEFT JOIN sale_numbers n ON n.sale_id=s.id WHERE s.customer_id=? AND s.payment_type='credit' UNION ALL SELECT r.id, r.receipt_date, 'receipt', CASE r.source WHEN 'debt' THEN 'باقی داری' WHEN 'deposit' THEN 'امانت' WHEN 'statement' THEN 'بیانیه' ELSE 'پیش پرداخت' END, r.amount_cents, CASE WHEN r.source='deposit' THEN 0 ELSE 1 END, r.created_at, CASE WHEN n.number IS NULL THEN NULL ELSE printf('R-%06d',n.number) END FROM receipts r LEFT JOIN receipt_numbers n ON n.receipt_id=r.id WHERE r.customer_id=? ORDER BY date ASC, created ASC, id ASC")
         .bind(&customer_id).bind(&customer_id).fetch_all(&mut *tx).await.map_err(db_error)?;
     let mut running = opening as i128;
     let mut rows = Vec::with_capacity(events.len());
@@ -238,7 +239,7 @@ pub(crate) async fn customer_ledger(db: &SqlitePool, customer_id: String) -> Res
         let (debit, credit) = if kind == "sale" { (amount, 0) } else { (0, amount) };
         if affects { running += debit as i128 - credit as i128; }
         let balance: i64 = running.try_into().map_err(|_| "ماندهٔ حساب بیش از حد مجاز است.".to_string())?;
-        rows.push(LedgerRow { id: event.get("id"), date: event.get("date"), kind,
+        rows.push(LedgerRow { id: event.get("id"), document_number:event.try_get("document_number").map_err(db_error)?, date: event.get("date"), kind,
             detail: event.get("detail"), debit: money(debit), credit: money(credit),
             affects_balance: affects, balance: money(balance) });
     }
@@ -326,7 +327,7 @@ mod tests {
         assert_eq!(snapshot.customers[0].balance, "7100.00");
         assert_eq!(ledger.balance, snapshot.customers[0].balance);
         assert_eq!(ledger.opening, "100.00");
-        assert_eq!(ledger.rows.len(), 3); // Cash sale is not a debt movement.
+        assert_eq!(ledger.rows.len(), 3); assert_eq!(ledger.rows[0].document_number.as_deref(), Some("S-000001")); assert_eq!(ledger.rows[2].document_number.as_deref(), Some("R-000002")); // Cash sale is not a debt movement.
         assert!(!ledger.rows[2].affects_balance); // Deposit stays visible but does not alter debt.
         assert_eq!(ledger.rows[1].balance, ledger.rows[2].balance);
         db.close().await;

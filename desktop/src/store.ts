@@ -190,7 +190,7 @@ export function createDemoStore(seed = true): Store {
         const debit = e.kind === 'sale' ? amount : 0n;
         const credit = e.kind === 'receipt' ? amount : 0n;
         if (e.affects_balance) balance += debit - credit;
-        return { id:e.id, date:e.date, kind:e.kind, detail:e.detail, debit:formatScaled(debit), credit:formatScaled(credit), affects_balance:e.affects_balance, balance:formatScaled(balance) };
+        return { id:e.id, document_number:e.document_number, date:e.date, kind:e.kind, detail:e.detail, debit:formatScaled(debit), credit:formatScaled(credit), affects_balance:e.affects_balance, balance:formatScaled(balance) };
       });
       return { customer_name: customer.name, customer_code: customer.code, opening: customer.opening, balance: formatScaled(balance), rows };
     },

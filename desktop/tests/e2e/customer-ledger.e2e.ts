@@ -31,7 +31,7 @@ test('credit sale and deposit are reflected correctly in the customer ledger', a
   await row.getByRole('button', { name: 'کارت حساب' }).click();
   dialog = page.getByRole('dialog');
   await expect(dialog.getByText('بدون تأثیر بر مانده')).toBeVisible();
-  await expect(dialog).toContainText('8,100');
+  await expect(dialog).toContainText('8,100'); await expect(dialog).toContainText('S-000003'); await expect(dialog).toContainText('R-000002');
   await page.reload();
   await page.getByRole('button', { name: 'مشتریان', exact: true }).click();
   await expect(page.getByText('مشتری آزمایشی')).toHaveCount(0);

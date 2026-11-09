@@ -19,6 +19,7 @@ describe('temporary preview workflow', () => {
     expect(ledger.opening).toBe('100.00');
     expect(ledger.balance).toBe(snapshot.customers[0].balance);
     expect(ledger.rows).toHaveLength(3); // cash sale does not appear
+    expect(ledger.rows.map(row=>row.document_number)).toEqual(['S-000001','R-000001','R-000002']);
     expect(ledger.rows[2].affects_balance).toBe(false);
     expect(ledger.rows[1].balance).toBe(ledger.rows[2].balance);
     expect(ledger.rows[2].credit).toBe('500.00');
