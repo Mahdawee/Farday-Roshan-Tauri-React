@@ -12,6 +12,12 @@ class SchemaTest(unittest.TestCase):
         self.db.executescript(SCHEMA.read_text())
         self.db.execute("INSERT INTO customers(id,code,name,opening_cents) VALUES('c','CUS-001','مشتری',10000)")
     def tearDown(self): self.db.close()
+    def test_local_user_schema_starts_empty_and_rejects_bad_roles_and_duplicates(self):
+        self.db.executescript((SCHEMA.parent/'0011_local_users.sql').read_text())
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM local_users').fetchone()[0],0)
+        self.db.execute("INSERT INTO local_users(id,username,full_name,password_hash,role) VALUES('u','Admin','مدیر','hash','admin')")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO local_users(id,username,full_name,password_hash,role) VALUES('u2','admin','دوم','hash','staff')")
+        with self.assertRaises(sqlite3.IntegrityError): self.db.execute("INSERT INTO local_users(id,username,full_name,password_hash,role) VALUES('u3','x','دوم','hash','invalid')")
     def test_audit_records_actual_values_atomically_and_is_append_only(self):
         for file in sorted(SCHEMA.parent.glob('*.sql'))[1:]:
             self.db.executescript(file.read_text())

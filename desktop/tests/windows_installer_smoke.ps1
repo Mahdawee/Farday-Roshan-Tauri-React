@@ -32,7 +32,7 @@ try {
     $app.Refresh()
     if ($app.HasExited) { throw "Tauri process exited during startup with code $($app.ExitCode)." }
     if (Test-Path $db) {
-      python -c "import sqlite3,sys,pathlib; c=sqlite3.connect(pathlib.Path(sys.argv[1]).as_uri()+'?mode=ro',uri=True); assert c.execute('select count(*) from _sqlx_migrations where success=1').fetchone()[0]==10; assert c.execute('pragma integrity_check').fetchone()[0]=='ok'; c.close()" $db 2>$null
+      python -c "import sqlite3,sys,pathlib; c=sqlite3.connect(pathlib.Path(sys.argv[1]).as_uri()+'?mode=ro',uri=True); assert c.execute('select count(*) from _sqlx_migrations where success=1').fetchone()[0]==11; assert c.execute('pragma integrity_check').fetchone()[0]=='ok'; c.close()" $db 2>$null
       if ($LASTEXITCODE -eq 0) { $ready = $true; break }
     }
     Start-Sleep -Seconds 1

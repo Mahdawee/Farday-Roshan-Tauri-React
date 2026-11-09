@@ -10,6 +10,8 @@ mod cashbox;
 mod preferences;
 mod restore;
 mod audit;
+#[allow(dead_code)] // Account foundation is deliberately not wired into commands yet.
+mod local_users;
 use service::{CustomerInput, ReceiptInput, SaleInput, Snapshot, Ledger};
 use sqlx::SqlitePool;
 use tauri::{Manager, State};
