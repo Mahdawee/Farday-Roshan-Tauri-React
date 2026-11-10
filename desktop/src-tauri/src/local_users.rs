@@ -25,7 +25,7 @@ fn username(raw:&str)->Result<String,String> {
 fn full_name(raw:&str)->Result<String,String> {
     let name=raw.trim(); if name.is_empty() || name.len()>320 { return Err("نام کامل معتبر وارد کنید.".into()); } Ok(name.into())
 }
-fn hash_password(password:&str)->Result<String,String> {
+pub(crate) fn hash_password(password:&str)->Result<String,String> {
     if password.chars().count()<12 || password.len()>1024 { return Err("رمز باید حداقل ۱۲ حرف و حداکثر ۱۰۲۴ بایت باشد.".into()); }
     let salt=SaltString::encode_b64(Uuid::new_v4().as_bytes()).map_err(|_|"ساخت رمز ناموفق بود.")?;
     Ok(Argon2::default().hash_password(password.as_bytes(),&salt).map_err(|_|"ساخت رمز ناموفق بود.")?.to_string())
@@ -79,20 +79,31 @@ pub(crate) async fn authenticate(db:&SqlitePool,login:&str,password:&str)->Resul
     user(&fresh)
 }
 pub(crate) async fn create(db:&SqlitePool,actor_id:&str,login:&str,name:&str,password:&str,role:&str)->Result<User,String> {
+    let hash=hash_password(password)?;
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    let result=create_on(&mut tx,actor_id,login,name,&hash,role).await?;
+    tx.commit().await.map_err(db_error)?;Ok(result)
+}
+/// Caller must hold the SQLite write lock and authenticate the actor on this connection.
+pub(crate) async fn create_on(tx:&mut SqliteConnection,actor_id:&str,login:&str,name:&str,hash:&str,role:&str)->Result<User,String> {
     let login=username(login)?; let name=full_name(name)?;
     if !matches!(role,"admin"|"staff") {return Err("نقش معتبر نیست.".into());}
-    let hash=hash_password(password)?;
-    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?; require_admin(&mut tx,actor_id).await?;
+    require_admin(tx,actor_id).await?;
     let u=User{id:Uuid::new_v4().to_string(),username:login,full_name:name,role:role.into(),active:true,auth_revision:1};
     sqlx::query("INSERT INTO local_users(id,username,full_name,password_hash,role) VALUES(?,?,?,?,?)")
         .bind(&u.id).bind(&u.username).bind(&u.full_name).bind(hash).bind(&u.role).execute(&mut *tx).await.map_err(db_error)?;
-    record_user(&mut tx,actor_id,&u.id,"insert",None,&public_json(&u)?).await?;
-    tx.commit().await.map_err(db_error)?; Ok(u)
+    record_user(tx,actor_id,&u.id,"insert",None,&public_json(&u)?).await?;Ok(u)
 }
 /// Restrict deactivation/demotion so there is always at least one active admin.
 pub(crate) async fn set_access(db:&SqlitePool,actor_id:&str,id:&str,role:&str,active:bool)->Result<(),String> {
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    set_access_on(&mut tx,actor_id,id,role,active).await?;
+    tx.commit().await.map_err(db_error)?;Ok(())
+}
+/// Caller must hold the SQLite write lock and authenticate the actor on this connection.
+pub(crate) async fn set_access_on(tx:&mut SqliteConnection,actor_id:&str,id:&str,role:&str,active:bool)->Result<(),String> {
     if !matches!(role,"admin"|"staff") {return Err("نقش معتبر نیست.".into());}
-    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?; require_admin(&mut tx,actor_id).await?;
+    require_admin(tx,actor_id).await?;
     let row=sqlx::query("SELECT id,username,full_name,role,active,auth_revision FROM local_users WHERE id=?").bind(id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or("کاربر وجود ندارد.")?;
     let old=user(&row)?;
     if old.role=="admin" && old.active && (role!="admin" || !active) {
@@ -103,8 +114,7 @@ pub(crate) async fn set_access(db:&SqlitePool,actor_id:&str,id:&str,role:&str,ac
         .bind(role).bind(active).bind(id).execute(&mut *tx).await.map_err(db_error)?.rows_affected();
     if changed!=1 {return Err("کاربر وجود ندارد.".into());}
     let mut new=old.clone();new.role=role.into();new.active=active;new.auth_revision+=1;
-    record_user(&mut tx,actor_id,id,"update",Some(&public_json(&old)?),&public_json(&new)?).await?;
-    tx.commit().await.map_err(db_error)?; Ok(())
+    record_user(tx,actor_id,id,"update",Some(&public_json(&old)?),&public_json(&new)?).await?;Ok(())
 }
 
 /// Change the user's own password; the old hash/revision is compared under the write lock.
@@ -125,13 +135,18 @@ pub(crate) async fn change_password(db:&SqlitePool,id:&str,current:&str,new_pass
 /// Administrator password reset; no password or password hash enters the journal.
 pub(crate) async fn reset_password(db:&SqlitePool,actor_id:&str,id:&str,new_password:&str)->Result<(),String> {
     let new_hash=hash_password(new_password)?;
-    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;require_admin(&mut tx,actor_id).await?;
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    reset_password_on(&mut tx,actor_id,id,&new_hash).await?;
+    tx.commit().await.map_err(db_error)?;Ok(())
+}
+/// Caller must hold the SQLite write lock and authenticate the actor on this connection.
+pub(crate) async fn reset_password_on(tx:&mut SqliteConnection,actor_id:&str,id:&str,new_hash:&str)->Result<(),String> {
+    require_admin(tx,actor_id).await?;
     let row=sqlx::query("SELECT id,username,full_name,role,active,auth_revision FROM local_users WHERE id=?").bind(id).fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or("کاربر وجود ندارد.")?;
     let old=user(&row)?;
     sqlx::query("UPDATE local_users SET password_hash=?,auth_revision=auth_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(new_hash).bind(id).execute(&mut *tx).await.map_err(db_error)?;
     let mut updated=old.clone();updated.auth_revision+=1;
-    record_user(&mut tx,actor_id,id,"update",Some(&public_json(&old)?),&public_json(&updated)?).await?;
-    tx.commit().await.map_err(db_error)?;Ok(())
+    record_user(tx,actor_id,id,"update",Some(&public_json(&old)?),&public_json(&updated)?).await?;Ok(())
 }
 
 #[cfg(test)]

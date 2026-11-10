@@ -18,6 +18,8 @@ mod local_session;
 mod authorized_customer;
 #[allow(dead_code)] // Internal transaction prototype, not yet a security boundary.
 mod authorized_transactions;
+#[allow(dead_code)] // Not exposed until command authorization is complete.
+mod authorized_users;
 use service::{CustomerInput, ReceiptInput, SaleInput, Snapshot, Ledger};
 use sqlx::SqlitePool;
 use tauri::{Manager, State};
