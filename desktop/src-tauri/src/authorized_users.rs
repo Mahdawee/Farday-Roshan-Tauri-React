@@ -43,6 +43,18 @@ pub(crate) async fn change_password(db:&SqlitePool,session:&Session,current:&str
 mod tests {
     use super::*;use crate::service::open_database;use uuid::Uuid;
     #[tokio::test]
+    async fn prepared_password_change_cannot_override_a_concurrent_reset() {
+        let path=std::env::temp_dir().join(format!("authorized-password-race-{}.sqlite3",Uuid::new_v4()));let db=open_database(path.clone()).await.unwrap();
+        let root=local_users::bootstrap(&db,"root","مدیر","root-password-long").await.unwrap();
+        let prepared=local_users::prepare_password_change(&db,&root.id,"root-password-long","later-password-long").await.unwrap();
+        local_users::reset_password(&db,&root.id,&root.id,"reset-password-long").await.unwrap();
+        let mut tx=db.begin_with("BEGIN IMMEDIATE").await.unwrap();
+        assert!(local_users::change_password_on(&mut tx,&root.id,prepared).await.is_err());tx.rollback().await.unwrap();
+        assert!(local_users::authenticate(&db,"root","later-password-long").await.is_err());
+        assert!(local_users::authenticate(&db,"root","reset-password-long").await.is_ok());
+        db.close().await;std::fs::remove_file(path).unwrap();
+    }
+    #[tokio::test]
     async fn own_password_change_is_session_bound_and_invalidates_session() {
         let path=std::env::temp_dir().join(format!("authorized-password-{}.sqlite3",Uuid::new_v4()));let db=open_database(path.clone()).await.unwrap();
         local_users::bootstrap(&db,"root","مدیر","root-password-long").await.unwrap();
