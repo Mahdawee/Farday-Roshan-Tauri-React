@@ -39,6 +39,24 @@ class SchemaTest(unittest.TestCase):
         self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2025-01-01','ریگ',1000,100,0,100,'cash')")
         self.db.execute("INSERT INTO sale_details(sale_id,bill_no) VALUES('s','B1')")
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM audit_events WHERE entity IN ('sales','sale_details')").fetchone()[0],2)
+    def test_transaction_actor_markers_cover_multiple_trigger_events_and_rollback(self):
+        for file in sorted(SCHEMA.parent.glob('*.sql'))[1:]:
+            self.db.executescript(file.read_text())
+        source=(SCHEMA.parent.parent/'src/authorized_transactions.rs').read_text()
+        query=re.search(r'sqlx::query\("(INSERT INTO audit_events\(entity,entity_id,operation,actor,after_json\) SELECT .*?)"\)',source).group(1)
+        self.db.execute('SAVEPOINT protected')
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2025-01-01','ریگ',1000,100,0,100,'cash')")
+        self.db.execute("INSERT INTO sale_details(sale_id,bill_no) VALUES('s','B1')")
+        self.db.execute("INSERT INTO sale_numbers(sale_id) VALUES('s')")
+        self.db.execute(query,('actor',0))
+        events=self.db.execute("SELECT entity,entity_id,sequence FROM audit_events WHERE entity<>'authorization' ORDER BY sequence").fetchall()
+        markers=self.db.execute("SELECT json_extract(after_json,'$.entity'),entity_id,json_extract(after_json,'$.event_sequence'),actor FROM audit_events WHERE entity='authorization' ORDER BY sequence").fetchall()
+        self.assertEqual(len(events),3)
+        self.assertEqual(markers,[(entity,id,seq,'actor') for entity,id,seq in events])
+        self.db.execute('ROLLBACK TO protected');self.db.execute('RELEASE protected')
+        for table in ('sales','sale_details','sale_numbers','audit_events'):
+            self.assertEqual(self.db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0],0)
+
     def test_attendance_compare_and_swap_uses_null_safe_times(self):
         for file in ['0002_employees.sql','0005_attendance.sql']:
             self.db.executescript((SCHEMA.parent / file).read_text())
