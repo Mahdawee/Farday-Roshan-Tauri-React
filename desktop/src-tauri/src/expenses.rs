@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqlitePool, SqliteConnection};
 use uuid::Uuid;
 use crate::service::{money, scaled, valid_date};
 
@@ -33,6 +33,11 @@ pub(crate) async fn list(db: &SqlitePool) -> Result<Vec<Expense>, String> {
 }
 
 pub(crate) async fn save(db: &SqlitePool, id: Option<String>, input: ExpenseInput, expected: Option<ExpenseInput>) -> Result<(), String> {
+    let mut conn=db.acquire().await.map_err(error)?;
+    save_on(&mut conn,id,input,expected).await.map(|_| ())
+}
+pub(crate) async fn save_on(db:&mut SqliteConnection, id:Option<String>, input:ExpenseInput, expected:Option<ExpenseInput>)->Result<String,String> {
+    let row_id=id.clone().unwrap_or_else(||Uuid::new_v4().to_string());
     valid_date(&input.date)?;
     let description = input.description.trim(); let category = input.expense_type.trim();
     let bill = input.purchase_bill_no.trim(); let shop = input.shop_name.trim();
@@ -50,15 +55,15 @@ pub(crate) async fn save(db: &SqlitePool, id: Option<String>, input: ExpenseInpu
         let n = sqlx::query("UPDATE expenses SET expense_date=?,description=?,expense_type=?,purchase_bill_no=?,shop_name=?,amount_afn_cents=?,amount_usd_cents=?,payer=?,payment_method=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND expense_date=? AND description=? AND expense_type=? AND purchase_bill_no=? AND shop_name=? AND amount_afn_cents=? AND amount_usd_cents=? AND payer=? AND payment_method=? AND notes=?")
             .bind(&input.date).bind(description).bind(category).bind(bill).bind(shop).bind(afn).bind(usd).bind(payer).bind(&input.payment_method).bind(notes).bind(id)
             .bind(expected.date).bind(expected.description).bind(expected.expense_type).bind(expected.purchase_bill_no).bind(expected.shop_name).bind(old_afn).bind(old_usd).bind(expected.payer).bind(expected.payment_method).bind(expected.notes)
-            .execute(db).await.map_err(error)?.rows_affected();
+            .execute(&mut *db).await.map_err(error)?.rows_affected();
         if n == 0 { return Err("مصرف تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.".into()); }
     } else {
         if expected.is_some() {return Err("نسخهٔ قبلی برای مصرف جدید قابل استفاده نیست.".into());}
         sqlx::query("INSERT INTO expenses(id,expense_date,description,expense_type,purchase_bill_no,shop_name,amount_afn_cents,amount_usd_cents,payer,payment_method,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
-            .bind(Uuid::new_v4().to_string()).bind(&input.date).bind(description).bind(category).bind(bill).bind(shop).bind(afn).bind(usd).bind(payer).bind(&input.payment_method).bind(notes)
-            .execute(db).await.map_err(error)?;
+            .bind(&row_id).bind(&input.date).bind(description).bind(category).bind(bill).bind(shop).bind(afn).bind(usd).bind(payer).bind(&input.payment_method).bind(notes)
+            .execute(&mut *db).await.map_err(error)?;
     }
-    Ok(())
+    Ok(row_id)
 }
 
 #[cfg(test)]

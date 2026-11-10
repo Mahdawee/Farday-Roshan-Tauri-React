@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqlitePool, SqliteConnection};
 use uuid::Uuid;
 use crate::service::{money, scaled, valid_date};
 
@@ -34,6 +34,11 @@ pub(crate) async fn list(db: &SqlitePool) -> Result<Vec<Salary>, String> {
     })).collect()
 }
 pub(crate) async fn save(db: &SqlitePool, id: Option<String>, input: SalaryInput, expected: Option<SalaryInput>) -> Result<(), String> {
+    let mut conn=db.acquire().await.map_err(error)?;
+    save_on(&mut conn,id,input,expected).await.map(|_| ())
+}
+pub(crate) async fn save_on(db:&mut SqliteConnection, id:Option<String>, input:SalaryInput, expected:Option<SalaryInput>)->Result<String,String> {
+    let row_id=id.clone().unwrap_or_else(||Uuid::new_v4().to_string());
     valid_date(&input.pay_date)?;
     if !valid_period(&input.period_calendar, input.period_year, input.period_month) { return Err("دورهٔ معاش معتبر نیست.".into()); }
     if !matches!(input.payment_type.as_str(), "cash" | "transfer") { return Err("نوع پرداخت معتبر نیست.".into()); }
@@ -49,14 +54,14 @@ pub(crate) async fn save(db: &SqlitePool, id: Option<String>, input: SalaryInput
         let n=sqlx::query("UPDATE salaries SET employee_id=?,period_calendar=?,period_year=?,period_month=?,pay_date=?,base_cents=?,bonus_cents=?,fine_cents=?,overtime_cents=?,total_cents=?,payer=?,payment_type=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND employee_id=? AND period_calendar=? AND period_year=? AND period_month=? AND pay_date=? AND base_cents=? AND bonus_cents=? AND fine_cents=? AND overtime_cents=? AND total_cents=? AND payer=? AND payment_type=? AND notes=?")
             .bind(&input.employee_id).bind(&input.period_calendar).bind(input.period_year).bind(input.period_month).bind(&input.pay_date).bind(base).bind(bonus).bind(fine).bind(overtime).bind(total).bind(payer).bind(&input.payment_type).bind(notes).bind(id)
             .bind(expected.employee_id).bind(expected.period_calendar).bind(expected.period_year).bind(expected.period_month).bind(expected.pay_date).bind(old_base).bind(old_bonus).bind(old_fine).bind(old_overtime).bind(old_total).bind(expected.payer).bind(expected.payment_type).bind(expected.notes)
-            .execute(db).await.map_err(error)?.rows_affected();
+            .execute(&mut *db).await.map_err(error)?.rows_affected();
         if n == 0 { return Err("معاش تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.".into()); }
     } else {
         if expected.is_some() {return Err("نسخهٔ قبلی برای معاش جدید قابل استفاده نیست.".into());}
         sqlx::query("INSERT INTO salaries(id,employee_id,period_calendar,period_year,period_month,pay_date,base_cents,bonus_cents,fine_cents,overtime_cents,total_cents,payer,payment_type,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-            .bind(Uuid::new_v4().to_string()).bind(&input.employee_id).bind(&input.period_calendar).bind(input.period_year).bind(input.period_month).bind(&input.pay_date).bind(base).bind(bonus).bind(fine).bind(overtime).bind(total).bind(payer).bind(&input.payment_type).bind(notes).execute(db).await.map_err(error)?;
+            .bind(&row_id).bind(&input.employee_id).bind(&input.period_calendar).bind(input.period_year).bind(input.period_month).bind(&input.pay_date).bind(base).bind(bonus).bind(fine).bind(overtime).bind(total).bind(payer).bind(&input.payment_type).bind(notes).execute(&mut *db).await.map_err(error)?;
     }
-    Ok(())
+    Ok(row_id)
 }
 #[cfg(test)]
 mod tests {

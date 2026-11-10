@@ -1,6 +1,6 @@
 //! A manual cashbook. No other business transaction is automatically posted here.
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqlitePool, SqliteConnection};
 use uuid::Uuid;
 use crate::service::{money, scaled, valid_date};
 
@@ -16,14 +16,19 @@ pub(crate) struct CashboxPage { rows:Vec<CashboxEntry>, page:i64, page_size:i64,
 fn error(err:sqlx::Error)->String { eprintln!("Cashbook database error: {err}"); "عملیات دفتر دستی دخل ناموفق بود.".into() }
 
 pub(crate) async fn add(db:&SqlitePool, input:CashboxInput)->Result<(),String> {
+    let mut conn=db.acquire().await.map_err(error)?;
+    add_on(&mut conn,input).await.map(|_| ())
+}
+pub(crate) async fn add_on(db:&mut SqliteConnection,input:CashboxInput)->Result<String,String> {
+    let id=Uuid::new_v4().to_string();
     valid_date(&input.date)?;
     if !matches!(input.direction.as_str(),"in"|"out") {return Err("نوع حرکت دخل معتبر نیست.".into());}
     let description=input.description.trim(); if description.is_empty() || description.len()>1000 {return Err("شرح معتبر برای حرکت دخل وارد کنید.".into());}
     let afn=scaled(&input.amount_afn,2)?; let usd=scaled(&input.amount_usd,2)?;
     if afn==0 && usd==0 {return Err("حداقل یکی از مبلغ‌ها باید بیشتر از صفر باشد.".into());}
     sqlx::query("INSERT INTO cashbox_entries(id,entry_date,direction,description,amount_afn_cents,amount_usd_cents) VALUES(?,?,?,?,?,?)")
-        .bind(Uuid::new_v4().to_string()).bind(input.date).bind(input.direction).bind(description).bind(afn).bind(usd).execute(db).await.map_err(error)?;
-    Ok(())
+        .bind(&id).bind(input.date).bind(input.direction).bind(description).bind(afn).bind(usd).execute(&mut *db).await.map_err(error)?;
+    Ok(id)
 }
 
 // One read transaction keeps summary and page consistent; separate currencies never mix.

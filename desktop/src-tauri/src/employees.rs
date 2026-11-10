@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqlitePool, SqliteConnection};
 use uuid::Uuid;
 use crate::service::{money, scaled, valid_date};
 
@@ -34,6 +34,11 @@ pub(crate) async fn list(db: &SqlitePool) -> Result<Vec<Employee>, String> {
 }
 
 pub(crate) async fn save(db: &SqlitePool, id: Option<String>, input: EmployeeInput, expected: Option<EmployeeInput>) -> Result<(), String> {
+    let mut conn=db.acquire().await.map_err(error)?;
+    save_on(&mut conn,id,input,expected).await.map(|_| ())
+}
+pub(crate) async fn save_on(db:&mut SqliteConnection, id:Option<String>, input:EmployeeInput, expected:Option<EmployeeInput>)->Result<String,String> {
+    let row_id=id.clone().unwrap_or_else(||Uuid::new_v4().to_string());
     let code = input.code.trim(); let name = input.name.trim();
     let father = input.father_name.trim(); let title = input.job_title.trim(); let phone = input.phone.trim();
     if code.is_empty() || name.is_empty() { return Err("کد و نام کارمند الزامی است.".into()); }
@@ -49,15 +54,15 @@ pub(crate) async fn save(db: &SqlitePool, id: Option<String>, input: EmployeeInp
         let changed = sqlx::query("UPDATE employees SET code=?,name=?,father_name=?,job_title=?,hire_date=?,base_salary_cents=?,phone=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND code COLLATE BINARY=? AND name=? AND father_name=? AND job_title=? AND hire_date IS ? AND base_salary_cents=? AND phone=? AND status=?")
             .bind(code).bind(name).bind(father).bind(title).bind(&input.hire_date).bind(salary).bind(phone).bind(input.status).bind(id)
             .bind(previous.code).bind(previous.name).bind(previous.father_name).bind(previous.job_title).bind(previous.hire_date).bind(old_salary).bind(previous.phone).bind(previous.status)
-            .execute(db).await.map_err(error)?.rows_affected();
+            .execute(&mut *db).await.map_err(error)?.rows_affected();
         if changed == 0 { return Err("کارمند تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.".into()); }
     } else {
         if expected.is_some() { return Err("نسخهٔ قبلی برای کارمند جدید قابل استفاده نیست.".into()); }
         sqlx::query("INSERT INTO employees(id,code,name,father_name,job_title,hire_date,base_salary_cents,phone,status) VALUES(?,?,?,?,?,?,?,?,?)")
-            .bind(Uuid::new_v4().to_string()).bind(code).bind(name).bind(father).bind(title).bind(&input.hire_date).bind(salary).bind(phone).bind(input.status)
-            .execute(db).await.map_err(error)?;
+            .bind(&row_id).bind(code).bind(name).bind(father).bind(title).bind(&input.hire_date).bind(salary).bind(phone).bind(input.status)
+            .execute(&mut *db).await.map_err(error)?;
     }
-    Ok(())
+    Ok(row_id)
 }
 
 #[cfg(test)]

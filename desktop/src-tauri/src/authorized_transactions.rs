@@ -1,7 +1,7 @@
 //! Internal transactional authorization for customer and sales/receipt writes.
 //! Deliberately not exposed until all command paths are protected.
 use sqlx::{Sqlite, SqlitePool, Transaction};
-use crate::{local_session::{Permission,Session},service::{self,CustomerInput,SaleInput,ReceiptInput}};
+use crate::{local_session::{Permission,Session},service::{self,CustomerInput,SaleInput,ReceiptInput}, employees,expenses,salaries,cashbox};
 
 fn error(e:sqlx::Error)->String {eprintln!("Authorized transaction error: {e}");"ثبت مجاز و تاریخچه ناموفق بود.".into()}
 struct Write<'a> { tx:Transaction<'a,Sqlite>, actor:String, first_sequence:i64 }
@@ -54,6 +54,27 @@ pub(crate) async fn update_receipt(db:&SqlitePool,session:&Session,id:String,inp
     w.commit("receipts",&id,"update").await
 }
 
+pub(crate) async fn save_employee(db:&SqlitePool,session:&Session,id:Option<String>,input:employees::EmployeeInput,expected:Option<employees::EmployeeInput>)->Result<String,String> {
+    let mut w=Write::begin(db,session).await?;let op=if id.is_some(){"update"}else{"insert"};
+    let id=employees::save_on(&mut w.tx,id,input,expected).await?;
+    w.commit("employees",&id,op).await?;Ok(id)
+}
+pub(crate) async fn save_expense(db:&SqlitePool,session:&Session,id:Option<String>,input:expenses::ExpenseInput,expected:Option<expenses::ExpenseInput>)->Result<String,String> {
+    let mut w=Write::begin(db,session).await?;let op=if id.is_some(){"update"}else{"insert"};
+    let id=expenses::save_on(&mut w.tx,id,input,expected).await?;
+    w.commit("expenses",&id,op).await?;Ok(id)
+}
+pub(crate) async fn save_salary(db:&SqlitePool,session:&Session,id:Option<String>,input:salaries::SalaryInput,expected:Option<salaries::SalaryInput>)->Result<String,String> {
+    let mut w=Write::begin(db,session).await?;let op=if id.is_some(){"update"}else{"insert"};
+    let id=salaries::save_on(&mut w.tx,id,input,expected).await?;
+    w.commit("salaries",&id,op).await?;Ok(id)
+}
+pub(crate) async fn add_cashbox_entry(db:&SqlitePool,session:&Session,input:cashbox::CashboxInput)->Result<String,String> {
+    let mut w=Write::begin(db,session).await?;
+    let id=cashbox::add_on(&mut w.tx,input).await?;
+    w.commit("cashbox_entries",&id,"insert").await?;Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,6 +110,27 @@ mod tests {
         let missing:i64=sqlx::query_scalar("SELECT COUNT(*) FROM audit_events a WHERE a.sequence>(SELECT sequence FROM audit_events WHERE entity='customers' AND entity_id='c' AND operation='insert') AND a.entity<>'authorization' AND (SELECT COUNT(*) FROM audit_events m WHERE m.entity='authorization' AND m.actor=? AND json_extract(m.after_json,'$.event_sequence')=a.sequence AND m.entity_id=a.entity_id AND json_extract(m.after_json,'$.entity')=a.entity AND json_extract(m.after_json,'$.operation')=a.operation)<>1")
             .bind(&admin.id).fetch_one(&db).await.unwrap();assert_eq!(missing,0);
         session.logout().unwrap();assert!(add_sale(&db,&session,sale("c","1")).await.is_err());
+        db.close().await;std::fs::remove_file(path).unwrap();
+    }
+    #[tokio::test]
+    async fn employee_expense_salary_and_cashbook_are_authorized_and_attributed() {
+        let path=std::env::temp_dir().join(format!("authorized-other-{}.sqlite3",Uuid::new_v4()));let db=open_database(path.clone()).await.unwrap();
+        let admin=local_users::bootstrap(&db,"admin","مدیر","admin-password-long").await.unwrap();let session=Session::default();
+        let employee=||serde_json::from_str(r#"{"code":"E","name":"کارمند","father_name":"","job_title":"","hire_date":null,"base_salary":"10","phone":"","status":"active"}"#).unwrap();
+        let expense=||serde_json::from_str(r#"{"date":"2025-03-21","description":"تیل","expense_type":"","purchase_bill_no":"","shop_name":"","amount_afn":"10","amount_usd":"0","payer":"","payment_method":"cash","notes":""}"#).unwrap();
+        let cash=||serde_json::from_str(r#"{"date":"2025-03-21","direction":"in","description":"ابتدایی","amount_afn":"10","amount_usd":"0"}"#).unwrap();
+        assert!(save_employee(&db,&session,None,employee(),None).await.is_err());
+        session.login(&db,"admin","admin-password-long").await.unwrap();
+        let e=save_employee(&db,&session,None,employee(),None).await.unwrap();
+        save_employee(&db,&session,Some(e.clone()),employee(),Some(employee())).await.unwrap();
+        let x=save_expense(&db,&session,None,expense(),None).await.unwrap();
+        save_expense(&db,&session,Some(x),expense(),Some(expense())).await.unwrap();
+        let salary=||serde_json::from_str(&format!(r#"{{"employee_id":"{e}","period_calendar":"shamsi","period_year":1404,"period_month":1,"pay_date":"2025-03-21","base":"10","bonus":"0","fine":"0","overtime":"0","payer":"","payment_type":"cash","notes":""}}"#)).unwrap();
+        let p=save_salary(&db,&session,None,salary(),None).await.unwrap();
+        save_salary(&db,&session,Some(p),salary(),Some(salary())).await.unwrap();
+        add_cashbox_entry(&db,&session,cash()).await.unwrap();
+        let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE entity='authorization' AND actor=?").bind(&admin.id).fetch_one(&db).await.unwrap();assert_eq!(count,7);
+        session.logout().unwrap();assert!(save_expense(&db,&session,None,expense(),None).await.is_err());
         db.close().await;std::fs::remove_file(path).unwrap();
     }
     #[tokio::test]
