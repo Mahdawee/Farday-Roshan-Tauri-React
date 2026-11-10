@@ -25,9 +25,37 @@ pub(crate) async fn reset_password(db:&SqlitePool,session:&Session,id:&str,passw
     tx.commit().await.map_err(error)
 }
 
+/// Change only the current session's own password. Password verification and
+/// hashing are deliberately outside the lock; the session is checked again
+/// inside the write transaction, and the verified hash/revision use CAS.
+pub(crate) async fn change_password(db:&SqlitePool,session:&Session,current:&str,new_password:&str)->Result<(),String> {
+    let (initial,epoch)=session.authorize_lease(db,Permission::Work).await?;
+    let prepared=local_users::prepare_password_change(db,&initial.id,current,new_password).await?;
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(error)?;
+    let actor=session.authorize_on(&mut tx,Permission::Work).await?;
+    if actor.id!=initial.id || actor.auth_revision!=initial.auth_revision {return Err("نشست تغییر کرده است؛ دوباره وارد شوید.".into());}
+    session.check_lease(epoch)?;
+    local_users::change_password_on(&mut tx,&actor.id,prepared).await?;
+    tx.commit().await.map_err(error)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;use crate::service::open_database;use uuid::Uuid;
+    #[tokio::test]
+    async fn own_password_change_is_session_bound_and_invalidates_session() {
+        let path=std::env::temp_dir().join(format!("authorized-password-{}.sqlite3",Uuid::new_v4()));let db=open_database(path.clone()).await.unwrap();
+        local_users::bootstrap(&db,"root","مدیر","root-password-long").await.unwrap();
+        let session=Session::default();
+        assert!(change_password(&db,&session,"root-password-long","new-password-long").await.is_err());
+        session.login(&db,"root","root-password-long").await.unwrap();
+        assert!(change_password(&db,&session,"wrong-password","new-password-long").await.is_err());
+        change_password(&db,&session,"root-password-long","new-password-long").await.unwrap();
+        assert!(session.authorize(&db,Permission::Work).await.is_err());
+        assert!(session.login(&db,"root","root-password-long").await.is_err());
+        session.login(&db,"root","new-password-long").await.unwrap();
+        db.close().await;std::fs::remove_file(path).unwrap();
+    }
     #[tokio::test]
     async fn only_current_admin_can_manage_users_and_all_changes_are_attributed() {
         let path=std::env::temp_dir().join(format!("authorized-users-{}.sqlite3",Uuid::new_v4()));

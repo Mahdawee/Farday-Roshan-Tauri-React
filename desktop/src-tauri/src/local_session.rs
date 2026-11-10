@@ -30,13 +30,24 @@ impl Session {
         let mut inner=self.inner.lock().map_err(|_|locked())?;inner.epoch=inner.epoch.wrapping_add(1);inner.active=None;Ok(())
     }
     pub(crate) async fn authorize(&self,db:&SqlitePool,permission:Permission)->Result<User,String> {
+        self.authorize_lease(db,permission).await.map(|(user,_)|user)
+    }
+    pub(crate) async fn authorize_lease(&self,db:&SqlitePool,permission:Permission)->Result<(User,u64),String> {
         let mut connection=db.acquire().await.map_err(|_|"بررسی نشست ناموفق بود.")?;
-        self.authorize_on(&mut connection,permission).await
+        self.authorize_lease_on(&mut connection,permission).await
+    }
+    pub(crate) fn check_lease(&self,epoch:u64)->Result<(),String> {
+        let inner=self.inner.lock().map_err(|_|locked())?;
+        if !inner.active.as_ref().is_some_and(|a|a.epoch==epoch && a.last_used.elapsed()<IDLE) {return Err(LOGIN_REQUIRED.into());}
+        Ok(())
     }
     /// For writes the caller MUST first hold BEGIN IMMEDIATE and must execute
     /// the operation on this same connection before committing. Authorization
     /// is checked after acquiring the write lock, not before it.
     pub(crate) async fn authorize_on(&self,connection:&mut SqliteConnection,permission:Permission)->Result<User,String> {
+        self.authorize_lease_on(connection,permission).await.map(|(user,_)|user)
+    }
+    async fn authorize_lease_on(&self,connection:&mut SqliteConnection,permission:Permission)->Result<(User,u64),String> {
         let (id,revision,epoch)={
             let mut inner=self.inner.lock().map_err(|_|locked())?;
             if inner.active.as_ref().is_some_and(|a|a.last_used.elapsed()>=IDLE) {inner.active=None;}
@@ -53,7 +64,7 @@ impl Session {
         let role:String=row.try_get("role").map_err(|_|"بررسی نشست ناموفق بود.")?;
         if matches!(permission,Permission::Admin) && role!="admin" {return Err("این عملیات فقط برای مدیر مجاز است.".into());}
         inner.active.as_mut().ok_or(LOGIN_REQUIRED)?.last_used=Instant::now();
-        Ok(User {id:row.try_get("id").map_err(|_|"بررسی نشست ناموفق بود.")?,username:row.try_get("username").map_err(|_|"بررسی نشست ناموفق بود.")?,full_name:row.try_get("full_name").map_err(|_|"بررسی نشست ناموفق بود.")?,role,active:row.try_get("active").map_err(|_|"بررسی نشست ناموفق بود.")?,auth_revision:row.try_get("auth_revision").map_err(|_|"بررسی نشست ناموفق بود.")?})
+        Ok((User {id:row.try_get("id").map_err(|_|"بررسی نشست ناموفق بود.")?,username:row.try_get("username").map_err(|_|"بررسی نشست ناموفق بود.")?,full_name:row.try_get("full_name").map_err(|_|"بررسی نشست ناموفق بود.")?,role,active:row.try_get("active").map_err(|_|"بررسی نشست ناموفق بود.")?,auth_revision:row.try_get("auth_revision").map_err(|_|"بررسی نشست ناموفق بود.")?},epoch))
     }
 }
 #[cfg(test)]
@@ -76,7 +87,11 @@ mod tests {
         session.login(&db,"staff","new-staff-password").await.unwrap();
         { let mut inner=session.inner.lock().unwrap();inner.active.as_mut().unwrap().last_used=Instant::now()-IDLE; }
         assert!(session.authorize(&db,Permission::Work).await.is_err());
-        session.login(&db,"admin","admin-password-long").await.unwrap();session.logout().unwrap();assert!(session.authorize(&db,Permission::Admin).await.is_err());
+        session.login(&db,"admin","admin-password-long").await.unwrap();
+        let (_,lease)=session.authorize_lease(&db,Permission::Admin).await.unwrap();
+        session.check_lease(lease).unwrap();session.logout().unwrap();assert!(session.check_lease(lease).is_err());
+        session.login(&db,"admin","admin-password-long").await.unwrap();assert!(session.check_lease(lease).is_err());
+        session.logout().unwrap();assert!(session.authorize(&db,Permission::Admin).await.is_err());
         db.close().await;std::fs::remove_file(path).unwrap();
     }
 }

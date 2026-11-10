@@ -117,19 +117,29 @@ pub(crate) async fn set_access_on(tx:&mut SqliteConnection,actor_id:&str,id:&str
     record_user(tx,actor_id,id,"update",Some(&public_json(&old)?),&public_json(&new)?).await?;Ok(())
 }
 
-/// Change the user's own password; the old hash/revision is compared under the write lock.
-pub(crate) async fn change_password(db:&SqlitePool,id:&str,current:&str,new_password:&str)->Result<(),String> {
+/// Password verification is done outside a write transaction; apply uses CAS.
+pub(crate) struct PreparedPasswordChange { old:User, hash:String, new_hash:String }
+pub(crate) async fn prepare_password_change(db:&SqlitePool,id:&str,current:&str,new_password:&str)->Result<PreparedPasswordChange,String> {
     let row=sqlx::query("SELECT id,username,full_name,role,active,auth_revision,password_hash FROM local_users WHERE id=?")
         .bind(id).fetch_optional(db).await.map_err(db_error)?.ok_or("رمز فعلی نادرست است.")?;
-    let old=user(&row)?; let hash:String=row.try_get("password_hash").map_err(db_error)?;
+    let old=user(&row)?;let hash:String=row.try_get("password_hash").map_err(db_error)?;
     if !old.active || !verify_password(current,&hash) {return Err("رمز فعلی نادرست است.".into());}
-    let new_hash=hash_password(new_password)?;
-    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    let new_hash=hash_password(new_password)?;Ok(PreparedPasswordChange{old,hash,new_hash})
+}
+/// Apply only to the exact account revision and hash that was verified.
+pub(crate) async fn change_password_on(tx:&mut SqliteConnection,id:&str,prepared:PreparedPasswordChange)->Result<(),String> {
+    let PreparedPasswordChange{old,hash,new_hash}=prepared;
+    if old.id!=id {return Err("حساب تغییر کرده است؛ دوباره وارد شوید.".into());}
     let changed=sqlx::query("UPDATE local_users SET password_hash=?,auth_revision=auth_revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND active=1 AND auth_revision=? AND password_hash=?")
         .bind(new_hash).bind(id).bind(old.auth_revision).bind(hash).execute(&mut *tx).await.map_err(db_error)?.rows_affected();
     if changed!=1 {return Err("حساب تغییر کرده است؛ دوباره وارد شوید.".into());}
     let mut updated=old.clone();updated.auth_revision+=1;
-    record_user(&mut tx,id,id,"update",Some(&public_json(&old)?),&public_json(&updated)?).await?;
+    record_user(tx,id,id,"update",Some(&public_json(&old)?),&public_json(&updated)?).await?;Ok(())
+}
+pub(crate) async fn change_password(db:&SqlitePool,id:&str,current:&str,new_password:&str)->Result<(),String> {
+    let prepared=prepare_password_change(db,id,current,new_password).await?;
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    change_password_on(&mut tx,id,prepared).await?;
     tx.commit().await.map_err(db_error)?;Ok(())
 }
 /// Administrator password reset; no password or password hash enters the journal.
