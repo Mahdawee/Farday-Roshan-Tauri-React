@@ -1,0 +1,11 @@
+import {test,expect} from '@playwright/test';
+test('customer fields, exact opening balance, search, edit, delete and browser reset',async({page})=>{
+  await page.goto('/');await page.getByRole('button',{name:'مشتریان',exact:true}).click();await expect(page.getByText('ماندهٔ اولیه، ماندهٔ جاری حساب نیست.',{exact:false})).toBeVisible();
+  await page.getByLabel('کد مشتری',{exact:true}).fill('CUS-001');await page.getByLabel('نام مشتری / شرکت',{exact:true}).fill('شرکت نمونه');await page.getByLabel('شخص رابط',{exact:true}).fill('احمد');await page.getByLabel('شماره تماس مشتری').fill('0700');await page.getByLabel('پلیت موتر').fill('123');await page.getByLabel('آدرس مشتری').fill('کابل');await page.getByLabel('توضیحات مشتری').fill('آزمایشی');await page.getByLabel('باقی مانده بدهی اولیه (افغانی)').fill('۹۹۹۹۹۹۹۹۹۹۹۹۹۹٫۹۹');await page.getByRole('button',{name:'ثبت مشتری',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('مشتری ذخیره شد');await expect(page.locator('tbody:visible')).toContainText('99999999999999.99');await expect(page.locator('tbody:visible')).toContainText('احمد');
+  await page.getByLabel('جستجوی مشتری').fill('کابل');await expect(page.locator('tbody:visible')).toContainText('شرکت نمونه');await page.getByLabel('جستجوی مشتری').fill('پیدا نمیشود');await expect(page.getByText('مشتری یافت نشد.')).toBeVisible();await page.getByLabel('جستجوی مشتری').fill('');
+  await page.getByRole('button',{name:'ویرایش'}).click();await page.getByLabel('باقی مانده بدهی اولیه (افغانی)').fill('-۰٫۰۱');await page.getByRole('button',{name:'ذخیره تغییرات مشتری'}).click();await expect(page.locator('tbody:visible')).toContainText('-0.01');
+  await page.getByLabel('کد مشتری',{exact:true}).fill('cus-001');await page.getByLabel('نام مشتری / شرکت',{exact:true}).fill('دوم');await page.getByRole('button',{name:'ثبت مشتری',exact:true}).click();await expect(page.getByRole('alert')).toContainText('تکراری');
+  page.once('dialog',d=>d.accept());await page.getByRole('button',{name:'حذف'}).click();await expect(page.getByText('مشتری یافت نشد.')).toBeVisible();
+  await page.reload();await page.getByRole('button',{name:'مشتریان',exact:true}).click();await expect(page.getByText('مشتری یافت نشد.')).toBeVisible();
+});
