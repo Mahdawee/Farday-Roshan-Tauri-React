@@ -1,0 +1,21 @@
+import {describe,it,expect} from 'vitest';
+import {blankEmployee} from './employees';
+import {createEmployeePreviewStore} from './employeeStore';
+import {createAttendancePreviewStore} from './attendanceStore';
+import {validateDate,validateEntry} from './attendance';
+import type {AttendanceEntry} from './attendance';
+import type {PreviewRecords} from './previewAttendance';
+const entry:AttendanceEntry={status:'present',check_in:'08:00',check_out:'16:30',overtime_hundredths:125,notes:'نمونه'};
+describe('attendance validation',()=>{it('validates date, times, status, overtime and notes',()=>{expect(()=>validateDate('2024-02-29')).not.toThrow();expect(()=>validateDate('2023-02-29')).toThrow();expect(()=>validateDate('')).toThrow();for(const e of [{...entry,check_in:'24:00'},{...entry,check_out:'08:60'},{...entry,overtime_hundredths:-1},{...entry,overtime_hundredths:100000},{...entry,status:'bad' as never},{...entry,notes:'a'.repeat(256)}])expect(()=>validateEntry(e)).toThrow();});});
+describe('daily attendance preview',()=>{it('writes atomically, rejects stale changes and protects employees with records',async()=>{
+  const records:PreviewRecords=new Map();const employees=createEmployeePreviewStore(id=>Array.from(records.values()).some(day=>day.has(id)));const attendance=createAttendancePreviewStore(employees,records);
+  await employees.save(null,null,{...blankEmployee,emp_code:'E1',full_name:'یک'});await employees.save(null,null,{...blankEmployee,emp_code:'E2',full_name:'دو'});
+  const [e1,e2]=await employees.list(),date='2024-02-29';await attendance.save(date,[{employee_id:e1.id,record_id:null,revision:null,entry}]);
+  await expect(employees.delete(e1.id,e1.revision)).rejects.toThrow('سابقهٔ حضور');
+  await expect(attendance.save(date,[{employee_id:e2.id,record_id:null,revision:null,entry},{employee_id:e1.id,record_id:'wrong',revision:99,entry}])).rejects.toThrow();
+  expect((await attendance.day(date)).filter(r=>r.entry)).toHaveLength(1);
+  await expect(attendance.save(date,[{employee_id:e1.id,record_id:null,revision:null,entry}])).rejects.toThrow();
+  await employees.save(e1.id,e1.revision,{...e1,status:'inactive'});expect((await attendance.day(date)).find(r=>r.employee_id===e1.id)?.employee_status).toBe('inactive');
+  await expect(attendance.save('2024-03-01',[{employee_id:e1.id,record_id:null,revision:null,entry}])).rejects.toThrow();
+  const original=(await attendance.day(date)).find(r=>r.employee_id===e1.id)!;await attendance.save(date,[{employee_id:e1.id,record_id:original.record_id,revision:1,entry:null}]);const updated=(await employees.list()).find(e=>e.id===e1.id)!;await employees.delete(updated.id,updated.revision);expect((await attendance.day(date)).length).toBe(1);
+});});

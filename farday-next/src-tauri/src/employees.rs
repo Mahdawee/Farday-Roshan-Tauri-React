@@ -15,7 +15,7 @@ fn message(e:sqlx::Error)->String {
     if e.as_database_error().is_some_and(|db|db.is_unique_violation()){return "کد کارمند تکراری است.".into();}
     eprintln!("Employee data error: {e}");"عملیات کارمند ناموفق بود.".into()
 }
-fn date_valid(s:&str)->bool {
+pub(crate) fn date_valid(s:&str)->bool {
     if s.is_empty(){return true;}
     let b=s.as_bytes();
     if b.len()!=10 || b[4]!=b'-' || b[7]!=b'-' || !b.iter().enumerate().all(|(i,c)|i==4||i==7||c.is_ascii_digit()){return false;}
@@ -52,8 +52,12 @@ pub(crate) async fn save(db:&SqlitePool,id:Option<String>,revision:Option<i64>,i
     } Ok(())
 }
 pub(crate) async fn delete(db:&SqlitePool,id:String,revision:i64)->Result<(),String> {
-    let n=sqlx::query("DELETE FROM employees WHERE id=? AND revision=?").bind(id).bind(revision).execute(db).await.map_err(message)?.rows_affected();
-    if n!=1{return Err("کارمند تغییر کرده یا وجود ندارد؛ فهرست را دوباره بخوانید.".into());}Ok(())
+    let n=sqlx::query("DELETE FROM employees WHERE id=? AND revision=? AND NOT EXISTS(SELECT 1 FROM attendance WHERE employee_id=?)").bind(&id).bind(revision).bind(&id).execute(db).await.map_err(message)?.rows_affected();
+    if n!=1 {
+        let has_attendance:i64=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM attendance WHERE employee_id=?)").bind(id).fetch_one(db).await.map_err(message)?;
+        if has_attendance!=0 {return Err("کارمند دارای سابقهٔ حضور است؛ حذف ممکن نیست. او را غیرفعال کنید.".into());}
+        return Err("کارمند تغییر کرده یا وجود ندارد؛ فهرست را دوباره بخوانید.".into());
+    } Ok(())
 }
 #[cfg(test)]
 mod tests {
