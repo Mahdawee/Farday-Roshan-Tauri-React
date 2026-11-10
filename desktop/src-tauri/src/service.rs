@@ -121,6 +121,11 @@ pub(crate) async fn add_customer_on(db: &mut SqliteConnection, input: CustomerIn
 }
 
 pub(crate) async fn update_customer(db: &SqlitePool, id: String, input: CustomerInput, expected: CustomerInput) -> Result<(), String> {
+    let mut conn=db.acquire().await.map_err(db_error)?;
+    update_customer_on(&mut conn,id,input,expected).await
+}
+
+pub(crate) async fn update_customer_on(db:&mut SqliteConnection, id:String, input:CustomerInput, expected:CustomerInput)->Result<(),String> {
     let opening = validate_customer(&input)?;
     let old_opening=scaled(&expected.opening,2)?;
     // code is normally NOCASE for uniqueness; use BINARY here so case-only edits conflict.
@@ -147,45 +152,58 @@ fn validate_receipt(input: &ReceiptInput) -> Result<i64, String> {
     Ok(amount)
 }
 pub(crate) async fn add_sale(db: &SqlitePool, input: SaleInput) -> Result<(), String> {
-    let (volume, price, freight, total) = validate_sale(&input)?; let details=input.details.normalized()?; let id=Uuid::new_v4().to_string();
     let mut tx=db.begin().await.map_err(db_error)?;
+    add_sale_on(&mut tx,input).await?; tx.commit().await.map_err(db_error)?; Ok(())
+}
+pub(crate) async fn add_sale_on(db:&mut SqliteConnection,input:SaleInput)->Result<String,String> {
+    let (volume, price, freight, total) = validate_sale(&input)?; let details=input.details.normalized()?; let id=Uuid::new_v4().to_string();
     sqlx::query("INSERT INTO sales (id, customer_id, sale_date, material, volume_milli, unit_price_cents, freight_cents, total_cents, payment_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(&id).bind(input.customer_id).bind(input.date).bind(input.material.trim()).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type)
-        .execute(&mut *tx).await.map_err(db_error)?;
-    write_sale_details(&mut tx,&id,&details).await?;
-    sqlx::query("INSERT INTO sale_numbers(sale_id) VALUES(?)").bind(&id).execute(&mut *tx).await.map_err(db_error)?;
-    tx.commit().await.map_err(db_error)?; Ok(())
+        .execute(&mut *db).await.map_err(db_error)?;
+    write_sale_details(db,&id,&details).await?;
+    sqlx::query("INSERT INTO sale_numbers(sale_id) VALUES(?)").bind(&id).execute(&mut *db).await.map_err(db_error)?;
+    Ok(id)
 }
 pub(crate) async fn add_receipt(db: &SqlitePool, input: ReceiptInput) -> Result<(), String> {
-    let amount=validate_receipt(&input)?; let details=input.details.normalized()?; let id=Uuid::new_v4().to_string(); let mut tx=db.begin().await.map_err(db_error)?;
+    let mut tx=db.begin().await.map_err(db_error)?;
+    add_receipt_on(&mut tx,input).await?; tx.commit().await.map_err(db_error)?; Ok(())
+}
+pub(crate) async fn add_receipt_on(db:&mut SqliteConnection,input:ReceiptInput)->Result<String,String> {
+    let amount=validate_receipt(&input)?; let details=input.details.normalized()?; let id=Uuid::new_v4().to_string();
     sqlx::query("INSERT INTO receipts (id, customer_id, receipt_date, amount_cents, source) VALUES (?, ?, ?, ?, ?)")
-        .bind(&id).bind(input.customer_id).bind(input.date).bind(amount).bind(input.source).execute(&mut *tx).await.map_err(db_error)?;
-    write_receipt_details(&mut tx,&id,&details).await?;
-    sqlx::query("INSERT INTO receipt_numbers(receipt_id) VALUES(?)").bind(&id).execute(&mut *tx).await.map_err(db_error)?;
-    tx.commit().await.map_err(db_error)?; Ok(())
+        .bind(&id).bind(input.customer_id).bind(input.date).bind(amount).bind(input.source).execute(&mut *db).await.map_err(db_error)?;
+    write_receipt_details(db,&id,&details).await?;
+    sqlx::query("INSERT INTO receipt_numbers(receipt_id) VALUES(?)").bind(&id).execute(&mut *db).await.map_err(db_error)?;
+    Ok(id)
 }
 /// A write lock protects comparison of both the base row and supplemental fields.
 pub(crate) async fn update_sale(db: &SqlitePool, id: String, input: SaleInput, expected: SaleInput) -> Result<(), String> {
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    update_sale_on(&mut tx,id,input,expected).await?; tx.commit().await.map_err(db_error)?; Ok(())
+}
+pub(crate) async fn update_sale_on(db:&mut SqliteConnection,id:String,input:SaleInput,expected:SaleInput)->Result<(),String> {
     let (volume,price,freight,total)=validate_sale(&input)?;
     let (old_volume,old_price,old_freight,old_total)=validate_sale(&expected)?;
     let details=input.details.normalized()?; let old_details=expected.details.clone();
-    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
-    if sale_details(&mut tx,&id).await? != old_details { return Err("فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
+    if sale_details(db,&id).await? != old_details { return Err("فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
     let n=sqlx::query("UPDATE sales SET customer_id=?,sale_date=?,material=?,volume_milli=?,unit_price_cents=?,freight_cents=?,total_cents=?,payment_type=? WHERE id=? AND customer_id=? AND sale_date=? AND material=? AND volume_milli=? AND unit_price_cents=? AND freight_cents=? AND total_cents=? AND payment_type=?")
         .bind(input.customer_id).bind(input.date).bind(input.material.trim()).bind(volume).bind(price).bind(freight).bind(total).bind(input.payment_type).bind(&id)
-        .bind(expected.customer_id).bind(expected.date).bind(expected.material.trim()).bind(old_volume).bind(old_price).bind(old_freight).bind(old_total).bind(expected.payment_type).execute(&mut *tx).await.map_err(db_error)?.rows_affected();
+        .bind(expected.customer_id).bind(expected.date).bind(expected.material.trim()).bind(old_volume).bind(old_price).bind(old_freight).bind(old_total).bind(expected.payment_type).execute(&mut *db).await.map_err(db_error)?.rows_affected();
     if n==0 { return Err("فروش تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
-    write_sale_details(&mut tx,&id,&details).await?; tx.commit().await.map_err(db_error)?; Ok(())
+    write_sale_details(db,&id,&details).await?; Ok(())
 }
 pub(crate) async fn update_receipt(db: &SqlitePool, id: String, input: ReceiptInput, expected: ReceiptInput) -> Result<(), String> {
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
+    update_receipt_on(&mut tx,id,input,expected).await?; tx.commit().await.map_err(db_error)?; Ok(())
+}
+pub(crate) async fn update_receipt_on(db:&mut SqliteConnection,id:String,input:ReceiptInput,expected:ReceiptInput)->Result<(),String> {
     let amount=validate_receipt(&input)?; let old_amount=validate_receipt(&expected)?;
     let details=input.details.normalized()?; let old_details=expected.details.clone();
-    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(db_error)?;
-    if receipt_details(&mut tx,&id).await? != old_details { return Err("رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
+    if receipt_details(db,&id).await? != old_details { return Err("رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
     let n=sqlx::query("UPDATE receipts SET customer_id=?,receipt_date=?,amount_cents=?,source=? WHERE id=? AND customer_id=? AND receipt_date=? AND amount_cents=? AND source=?")
-        .bind(input.customer_id).bind(input.date).bind(amount).bind(input.source).bind(&id).bind(expected.customer_id).bind(expected.date).bind(old_amount).bind(expected.source).execute(&mut *tx).await.map_err(db_error)?.rows_affected();
+        .bind(input.customer_id).bind(input.date).bind(amount).bind(input.source).bind(&id).bind(expected.customer_id).bind(expected.date).bind(old_amount).bind(expected.source).execute(&mut *db).await.map_err(db_error)?.rows_affected();
     if n==0 { return Err("رسید تغییر کرده یا وجود ندارد؛ جزئیات را دوباره باز کنید.".into()); }
-    write_receipt_details(&mut tx,&id,&details).await?; tx.commit().await.map_err(db_error)?; Ok(())
+    write_receipt_details(db,&id,&details).await?; Ok(())
 }
 
 pub(crate) async fn snapshot(db: &SqlitePool) -> Result<Snapshot, String> {
