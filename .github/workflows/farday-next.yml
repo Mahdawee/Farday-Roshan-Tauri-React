@@ -1,0 +1,54 @@
+name: Farday Next preview checks
+on:
+  push:
+    paths: ['farday-next/**', '.github/workflows/farday-next.yml']
+  pull_request:
+    paths: ['farday-next/**', '.github/workflows/farday-next.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: farday-next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: farday-next/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: python3 tools/schema_inventory.py --check
+      - run: python3 tools/test_review.py
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: farday-next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: farday-next/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run build
+      - name: Test Rust and SQLite
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Build unsigned experimental Windows installer
+        run: npm run tauri -- build --debug --ci --no-sign --config src-tauri/tauri.experimental.conf.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: farday-next-windows-unsigned-preview
+          path: farday-next/src-tauri/target/debug/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7
