@@ -1,7 +1,7 @@
 //! Internal transactional authorization for customer and sales/receipt writes.
 //! Deliberately not exposed until all command paths are protected.
 use sqlx::{Sqlite, SqlitePool, Transaction};
-use crate::{local_session::{Permission,Session},service::{self,CustomerInput,SaleInput,ReceiptInput}, employees,expenses,salaries,cashbox};
+use crate::{local_session::{Permission,Session},service::{self,CustomerInput,SaleInput,ReceiptInput}, employees,expenses,salaries,cashbox,attendance};
 
 fn error(e:sqlx::Error)->String {eprintln!("Authorized transaction error: {e}");"ثبت مجاز و تاریخچه ناموفق بود.".into()}
 struct Write<'a> { tx:Transaction<'a,Sqlite>, actor:String, first_sequence:i64 }
@@ -75,6 +75,23 @@ pub(crate) async fn add_cashbox_entry(db:&SqlitePool,session:&Session,input:cash
     w.commit("cashbox_entries",&id,"insert").await?;Ok(id)
 }
 
+pub(crate) async fn save_attendance(db:&SqlitePool,session:&Session,id:Option<String>,input:attendance::AttendanceInput,expected:Option<attendance::AttendanceInput>)->Result<String,String> {
+    let mut w=Write::begin(db,session).await?;let op=if id.is_some(){"update"}else{"insert"};
+    let id=attendance::save_on(&mut w.tx,id,input,expected).await?;
+    w.commit("attendance",&id,op).await?;Ok(id)
+}
+pub(crate) async fn create_attendance_batch(db:&SqlitePool,session:&Session,date:String,rows:Vec<attendance::BatchRow>)->Result<(),String> {
+    let mut w=Write::begin(db,session).await?;
+    let ids=attendance::create_batch_on(&mut w.tx,date,rows).await?;
+    // Verify a primary event for every row, not just the first of the batch.
+    for id in &ids {
+        let n:i64=sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE sequence>? AND entity='attendance' AND entity_id=? AND operation='insert'")
+            .bind(w.first_sequence).bind(id).fetch_one(&mut *w.tx).await.map_err(error)?;
+        if n!=1 {return Err("تاریخچهٔ ورق حضور ناقص است؛ عملیات لغو شد.".into());}
+    }
+    w.commit("attendance",&ids[0],"insert").await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,6 +148,24 @@ mod tests {
         add_cashbox_entry(&db,&session,cash()).await.unwrap();
         let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE entity='authorization' AND actor=?").bind(&admin.id).fetch_one(&db).await.unwrap();assert_eq!(count,7);
         session.logout().unwrap();assert!(save_expense(&db,&session,None,expense(),None).await.is_err());
+        db.close().await;std::fs::remove_file(path).unwrap();
+    }
+    #[tokio::test]
+    async fn attendance_batch_is_all_or_nothing_and_each_row_has_an_actor() {
+        let path=std::env::temp_dir().join(format!("authorized-attendance-{}.sqlite3",Uuid::new_v4()));let db=open_database(path.clone()).await.unwrap();
+        let admin=local_users::bootstrap(&db,"admin","مدیر","admin-password-long").await.unwrap();let session=Session::default();
+        sqlx::query("INSERT INTO employees(id,code,name,status) VALUES('e','E','اول','active'),('f','F','دوم','active'),('i','I','غیرفعال','inactive')").execute(&db).await.unwrap();
+        let row=|id:&str|serde_json::from_str(&format!(r#"{{"employee_id":"{id}","status":"present"}}"#)).unwrap();
+        assert!(create_attendance_batch(&db,&session,"2025-03-21".into(),vec![row("e")]).await.is_err());
+        session.login(&db,"admin","admin-password-long").await.unwrap();
+        assert!(create_attendance_batch(&db,&session,"2025-03-21".into(),vec![row("e"),row("i")]).await.is_err());
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM attendance").fetch_one(&db).await.unwrap(),0);
+        create_attendance_batch(&db,&session,"2025-03-21".into(),vec![row("e"),row("f")]).await.unwrap();
+        let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE entity='authorization' AND actor=? AND json_extract(after_json,'$.entity')='attendance'").bind(&admin.id).fetch_one(&db).await.unwrap();assert_eq!(count,2);
+        let input=||serde_json::from_str(r#"{"employee_id":"e","work_date":"2025-03-22","status":"present","check_in":null,"check_out":null,"overtime":"0","notes":""}"#).unwrap();
+        let id=save_attendance(&db,&session,None,input(),None).await.unwrap();
+        save_attendance(&db,&session,Some(id.clone()),input(),Some(input())).await.unwrap();
+        assert!(save_attendance(&db,&session,Some(id),input(),None).await.is_err());
         db.close().await;std::fs::remove_file(path).unwrap();
     }
     #[tokio::test]

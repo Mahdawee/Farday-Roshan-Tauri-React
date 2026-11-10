@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqlitePool, SqliteConnection};
 use uuid::Uuid;
 use crate::service::{money, scaled, valid_date};
 
@@ -43,6 +43,11 @@ pub(crate) async fn list(db: &SqlitePool) -> Result<Vec<Attendance>, String> {
     })).collect()
 }
 pub(crate) async fn save(db: &SqlitePool, id: Option<String>, input: AttendanceInput, expected: Option<AttendanceInput>) -> Result<(), String> {
+    let mut conn=db.acquire().await.map_err(error)?;
+    save_on(&mut conn,id,input,expected).await.map(|_| ())
+}
+pub(crate) async fn save_on(db:&mut SqliteConnection,id:Option<String>,input:AttendanceInput,expected:Option<AttendanceInput>)->Result<String,String> {
+    let row_id=id.clone().unwrap_or_else(||Uuid::new_v4().to_string());
     valid_date(&input.work_date)?;
     if !valid_status(&input.status) { return Err("وضعیت حضور معتبر نیست.".into()); }
     let check_in=parse_time(input.check_in.as_deref())?; let check_out=parse_time(input.check_out.as_deref())?;
@@ -55,34 +60,42 @@ pub(crate) async fn save(db: &SqlitePool, id: Option<String>, input: AttendanceI
         let changed=sqlx::query("UPDATE attendance SET employee_id=?,work_date=?,status=?,check_in=?,check_out=?,overtime_hundredths=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND employee_id=? AND work_date=? AND status=? AND check_in IS ? AND check_out IS ? AND overtime_hundredths=? AND notes=?")
             .bind(&input.employee_id).bind(&input.work_date).bind(&input.status).bind(&check_in).bind(&check_out).bind(overtime).bind(notes).bind(id)
             .bind(previous.employee_id).bind(previous.work_date).bind(previous.status).bind(previous.check_in).bind(previous.check_out).bind(old_overtime).bind(previous.notes)
-            .execute(db).await.map_err(error)?.rows_affected();
+            .execute(&mut *db).await.map_err(error)?.rows_affected();
         if changed==0 { return Err("رکورد حضور تغییر کرده یا وجود ندارد؛ فرم را ببندید و دوباره باز کنید.".into()); }
     } else {
         if expected.is_some() { return Err("نسخهٔ قبلی برای حضور جدید قابل استفاده نیست.".into()); }
         sqlx::query("INSERT INTO attendance(id,employee_id,work_date,status,check_in,check_out,overtime_hundredths,notes) VALUES(?,?,?,?,?,?,?,?)")
-            .bind(Uuid::new_v4().to_string()).bind(&input.employee_id).bind(&input.work_date).bind(&input.status).bind(&check_in).bind(&check_out).bind(overtime).bind(notes).execute(db).await.map_err(error)?;
+            .bind(&row_id).bind(&input.employee_id).bind(&input.work_date).bind(&input.status).bind(&check_in).bind(&check_out).bind(overtime).bind(notes).execute(&mut *db).await.map_err(error)?;
     }
-    Ok(())
+    Ok(row_id)
 }
 #[derive(Deserialize)]
 pub(crate) struct BatchRow { employee_id: String, status: String }
 /// Create missing daily records atomically, never overwrite an existing record.
 pub(crate) async fn create_batch(db: &SqlitePool, work_date: String, rows: Vec<BatchRow>) -> Result<(), String> {
+    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(error)?;
+    create_batch_on(&mut tx,work_date,rows).await?;
+    tx.commit().await.map_err(error)?;Ok(())
+}
+/// Caller must hold the write lock for the whole batch.
+pub(crate) async fn create_batch_on(db:&mut SqliteConnection,work_date:String,rows:Vec<BatchRow>)->Result<Vec<String>,String> {
     valid_date(&work_date)?;
     if rows.is_empty() || rows.len()>500 { return Err("ورق باید بین ۱ تا ۵۰۰ کارمند داشته باشد.".into()); }
     let mut ids=std::collections::HashSet::new();
     for row in &rows {
         if row.employee_id.trim().is_empty() || !ids.insert(&row.employee_id) || !valid_status(&row.status) { return Err("کارمندان یا وضعیت‌های ورق معتبر نیستند.".into()); }
     }
-    let mut tx=db.begin_with("BEGIN IMMEDIATE").await.map_err(error)?;
+    let mut created=Vec::with_capacity(rows.len());
     for row in rows {
         // Batch is restricted to active employees at the moment of insertion.
-        let active:Option<i64>=sqlx::query_scalar("SELECT 1 FROM employees WHERE id=? AND status='active'").bind(&row.employee_id).fetch_optional(&mut *tx).await.map_err(error)?;
+        let active:Option<i64>=sqlx::query_scalar("SELECT 1 FROM employees WHERE id=? AND status='active'").bind(&row.employee_id).fetch_optional(&mut *db).await.map_err(error)?;
         if active.is_none() { return Err("کارمند انتخاب‌شده وجود ندارد یا غیرفعال است؛ هیچ ردیفی ذخیره نشد.".into()); }
+        let id=Uuid::new_v4().to_string();
         sqlx::query("INSERT INTO attendance(id,employee_id,work_date,status) VALUES(?,?,?,?)")
-            .bind(Uuid::new_v4().to_string()).bind(row.employee_id).bind(&work_date).bind(row.status).execute(&mut *tx).await.map_err(error)?;
+            .bind(&id).bind(row.employee_id).bind(&work_date).bind(row.status).execute(&mut *db).await.map_err(error)?;
+        created.push(id);
     }
-    tx.commit().await.map_err(error)?; Ok(())
+    Ok(created)
 }
 #[cfg(test)]
 mod tests {
