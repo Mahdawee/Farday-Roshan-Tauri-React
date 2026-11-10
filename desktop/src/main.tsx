@@ -197,7 +197,7 @@ function DailyReport({calendar}:{calendar:Calendar}) {
   const today=displayCalendarDate(todayKabul(),calendar);
   const [from,setFrom]=useState(today),[to,setTo]=useState(today);
   const [result,setResult]=useState<{rows:DailyRow[];from:string;to:string}|null>(null);
-  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[printing,setPrinting]=useState(false);
   const submit=async(e:React.FormEvent)=>{
     e.preventDefault();setResult(null);setError('');setMessage('');
     const start=parseCalendarDate(from,calendar),end=parseCalendarDate(to,calendar);
@@ -216,10 +216,18 @@ function DailyReport({calendar}:{calendar:Calendar}) {
     </div><div className="expense-feedback"><button className="btn primary" disabled={busy}>{busy?'در حال محاسبه...':'محاسبهٔ راپور روزانه'}</button></div></form>
     {error && <div className="error expense-feedback" role="alert">{error}</div>}{message && <div className="notice expense-feedback" role="status">{message}</div>}
     {result && <><div className="form-hint">{result.rows.length} روز، از {displayCalendarDate(result.from,calendar)} تا {displayCalendarDate(result.to,calendar)}. برای اطلاعات تازه دوباره محاسبه کنید.</div>
-      <div className="table-wrap"><table><thead><tr><th>تاریخ</th><th>فروش نقده (افغانی)</th><th>فروش باقی (افغانی)</th><th>متراژ</th><th>رسید مؤثر (افغانی)</th><th>رسید امانت (افغانی)</th><th>مصارف (افغانی)</th><th>مصارف (دالر)</th><th>معاش (افغانی)</th></tr></thead>
-      <tbody>{result.rows.map(row=><tr key={row.date}><td dir="ltr">{displayCalendarDate(row.date,calendar)}</td>{[row.sales_cash,row.sales_credit,row.volume,row.receipts_effective,row.receipts_deposit,row.expenses_afn,row.expenses_usd,row.salaries_afn].map((value,i)=><td key={i} dir="ltr">{i===2?value:displayMoney(value)}</td>)}</tr>)}</tbody></table></div><div className="expense-feedback"><button className="btn secondary" type="button" disabled={!inDesktop || busy} onClick={exportCsv}>خروجی CSV روزانه</button> <span className="form-hint">{inDesktop?'فایل باید جدید باشد؛ در صورت تغییر اطلاعات دوباره محاسبه کنید.':'خروجی فایل در پیش‌نمایش مرورگر فعال نیست.'}</span></div></>}
-    <div className="form-hint salary-warning">حداکثر بازه ۳۶۶ روز است و روزهای بدون فعالیت صفر نشان داده می‌شوند. رسید امانت جداست؛ مصارف نقده و باقی و معاش منفی نیز شامل‌اند. ارزها تبدیل نمی‌شوند. این ارقام موجودی دخل یا سود نیستند و دفتر دستی در آن‌ها شامل نیست. قواعد باید با حسابدار تطبیق شوند؛ چاپ این راپور هنوز آماده نیست؛ فایل CSV بدون رمزگذاری است.</div>
+      <DailyTable rows={result.rows} calendar={calendar}/><div className="expense-feedback"><button className="btn secondary" type="button" disabled={busy} onClick={()=>setPrinting(true)}>پیش‌نمایش چاپ روزانه</button> <button className="btn secondary" type="button" disabled={!inDesktop || busy} onClick={exportCsv}>خروجی CSV روزانه</button> <span className="form-hint">{inDesktop?'فایل باید جدید باشد؛ در صورت تغییر اطلاعات دوباره محاسبه کنید.':'خروجی فایل در پیش‌نمایش مرورگر فعال نیست.'}</span></div></>}
+    <div className="form-hint salary-warning">حداکثر بازه ۳۶۶ روز است و روزهای بدون فعالیت صفر نشان داده می‌شوند. رسید امانت جداست؛ مصارف نقده و باقی و معاش منفی نیز شامل‌اند. ارزها تبدیل نمی‌شوند. این ارقام موجودی دخل یا سود نیستند و دفتر دستی در آن‌ها شامل نیست. قواعد باید با حسابدار تطبیق شوند؛ چاپ آزمایشی و فایل CSV بدون رمزگذاری است.</div>
+    {printing && result && <div className="modal-backdrop daily-print-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setPrinting(false);}}><div className="modal ledger-modal daily-print" role="dialog" aria-modal="true" aria-labelledby="daily-print-title">
+      <div className="modal-head"><div><h2 id="daily-print-title">راپور روزانهٔ آزمایشی</h2><p>از {displayCalendarDate(result.from,calendar)} تا {displayCalendarDate(result.to,calendar)}</p></div><button className="icon-button no-print" aria-label="بستن" onClick={()=>setPrinting(false)}><X size={20}/></button></div>
+      <p className="ledger-period">غیررسمی؛ موجودی دخل یا سود نیست. رسید امانت و ارزها جدا هستند؛ مصارف باقی و معاش منفی شامل‌اند. اطلاعات مربوط به زمان محاسبه است و باید با حسابدار تطبیق شود.</p>
+      <DailyTable rows={result.rows} calendar={calendar}/><div className="modal-actions no-print"><button className="btn secondary" onClick={()=>setPrinting(false)}>بستن</button><button className="btn primary" onClick={()=>window.print()}>چاپ آزمایشی</button></div>
+    </div></div>}
   </section>;
+}
+function DailyTable({rows,calendar}:{rows:DailyRow[];calendar:Calendar}) {
+  return <div className="table-wrap"><table><thead><tr><th>تاریخ</th><th>فروش نقده (افغانی)</th><th>فروش باقی (افغانی)</th><th>متراژ</th><th>رسید مؤثر (افغانی)</th><th>رسید امانت (افغانی)</th><th>مصارف (افغانی)</th><th>مصارف (دالر)</th><th>معاش (افغانی)</th></tr></thead>
+      <tbody>{rows.map(row=><tr key={row.date}><td dir="ltr">{displayCalendarDate(row.date,calendar)}</td>{[row.sales_cash,row.sales_credit,row.volume,row.receipts_effective,row.receipts_deposit,row.expenses_afn,row.expenses_usd,row.salaries_afn].map((value,i)=><td key={i} dir="ltr">{i===2?value:displayMoney(value)}</td>)}</tr>)}</tbody></table></div>;
 }
 
 function GroupedReports({calendar}:{calendar:Calendar}) {

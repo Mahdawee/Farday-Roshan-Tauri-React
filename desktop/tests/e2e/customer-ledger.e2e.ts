@@ -673,3 +673,16 @@ test('daily report shows each inclusive day and keeps deposit and currencies sep
   await expect(page.getByText('این ارقام موجودی دخل یا سود نیستند',{exact:false})).toBeVisible();await expect(page.getByRole('button',{name:'خروجی CSV روزانه'})).toBeDisabled();
   await page.getByLabel('تا تاریخ (شمسی)').fill('1406/01/01');await expect(body).toHaveCount(0);await page.getByRole('button',{name:'محاسبهٔ راپور روزانه'}).click();await expect(page.getByRole('alert')).toContainText('۳۶۶');
 });
+
+test('daily report print preview isolates the full multi-page result',async({page})=>{
+  await page.goto('/');await page.getByRole('button',{name:'راپور روزانه',exact:true}).click();
+  await page.getByLabel('از تاریخ (شمسی)').fill('1404/01/01');await page.getByLabel('تا تاریخ (شمسی)').fill('1404/03/31');await page.getByRole('button',{name:'محاسبهٔ راپور روزانه'}).click();
+  await page.getByRole('button',{name:'پیش‌نمایش چاپ روزانه'}).click();const dialog=page.getByRole('dialog');
+  await expect(dialog.locator('tbody tr')).toHaveCount(93);await expect(dialog).toContainText('غیررسمی');
+  await page.evaluate(()=>{(window as Window & {printCalled?:boolean}).print=()=>{(window as Window & {printCalled?:boolean}).printCalled=true;};});
+  await dialog.getByRole('button',{name:'چاپ آزمایشی'}).click();expect(await page.evaluate(()=>(window as Window & {printCalled?:boolean}).printCalled)).toBe(true);
+  await page.emulateMedia({media:'print'});await expect(dialog.getByRole('button',{name:'چاپ آزمایشی'})).toBeHidden();
+  expect(await page.locator('.sidebar').evaluate(el=>getComputedStyle(el).visibility)).toBe('hidden');
+  expect(await dialog.evaluate(el=>getComputedStyle(el).maxHeight)).toBe('none');
+  const pdf=await page.pdf({format:'A4'});expect((pdf.toString('latin1').match(/\/Type\s*\/Page\b/g) ?? []).length).toBeGreaterThan(1);
+});

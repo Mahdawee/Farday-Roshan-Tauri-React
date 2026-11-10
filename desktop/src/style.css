@@ -19,24 +19,26 @@
 /* Keep the growing navigation usable on short desktop and mobile viewports. */
 .sidebar{overflow-y:auto}.sidebar>*{flex-shrink:0}
 
-/* Only the active transaction or customer ledger is printed. */
+/* Only the active transaction, customer ledger or daily report is printed. */
 .ledger-filters{margin-bottom:16px}.ledger-period{font-size:11px;color:#526c65;margin:8px 0 14px;line-height:1.8}
 
 @media print {
-  body:has(:is(.transaction-print,.ledger-print)) * { visibility:hidden; }
-  body:has(:is(.transaction-print,.ledger-print)) :is(.transaction-print,.ledger-print),
-  body:has(:is(.transaction-print,.ledger-print)) :is(.transaction-print,.ledger-print) * { visibility:visible; }
-  body:has(:is(.transaction-print,.ledger-print)) .panel, body:has(:is(.transaction-print,.ledger-print)) .main,
-  body:has(:is(.transaction-print,.ledger-print)) .workspace { overflow:visible; }
-  :is(.transaction-print-backdrop,.ledger-print-backdrop) { position:absolute; inset:0; display:block; background:white; padding:0; }
-  :is(.transaction-print,.ledger-print) { position:absolute; top:0; left:0; width:100%; max-height:none; overflow:visible; box-shadow:none; border-radius:0; padding:0; }
-  :is(.transaction-print,.ledger-print) .table-wrap { overflow:visible; }
-  :is(.transaction-print,.ledger-print) table { min-width:0; }
-  :is(.transaction-print,.ledger-print) td, :is(.transaction-print,.ledger-print) th { white-space:normal; overflow-wrap:anywhere; }
-  :is(.transaction-print,.ledger-print) td.details-text { white-space:pre-wrap; }
-  :is(.transaction-print,.ledger-print) tr { break-inside:avoid; }
-  :is(.transaction-print,.ledger-print) tr:has(.details-text) { break-inside:auto; }
-  :is(.transaction-print,.ledger-print) .no-print, :is(.transaction-print,.ledger-print) .no-print * { display:none; visibility:hidden; }
+  body:has(:is(.transaction-print,.ledger-print,.daily-print)) * { visibility:hidden; }
+  body:has(:is(.transaction-print,.ledger-print,.daily-print)) :is(.transaction-print,.ledger-print,.daily-print),
+  body:has(:is(.transaction-print,.ledger-print,.daily-print)) :is(.transaction-print,.ledger-print,.daily-print) * { visibility:visible; }
+  body:has(:is(.transaction-print,.ledger-print,.daily-print)) .panel, body:has(:is(.transaction-print,.ledger-print,.daily-print)) .main,
+  body:has(:is(.transaction-print,.ledger-print,.daily-print)) .workspace { overflow:visible; }
+  :is(.transaction-print-backdrop,.ledger-print-backdrop,.daily-print-backdrop) { position:absolute; inset:0; display:block; background:white; padding:0; }
+  :is(.transaction-print,.ledger-print,.daily-print) { position:absolute; top:0; left:0; width:100%; max-height:none; overflow:visible; box-shadow:none; border-radius:0; padding:0; }
+  :is(.transaction-print,.ledger-print,.daily-print) .table-wrap { overflow:visible; }
+  :is(.transaction-print,.ledger-print,.daily-print) table { min-width:0; }
+  :is(.transaction-print,.ledger-print,.daily-print) td, :is(.transaction-print,.ledger-print,.daily-print) th { white-space:normal; overflow-wrap:anywhere; }
+  :is(.transaction-print,.ledger-print,.daily-print) td.details-text { white-space:pre-wrap; }
+  :is(.transaction-print,.ledger-print,.daily-print) tr { break-inside:avoid; }
+  :is(.transaction-print,.ledger-print,.daily-print) tr:has(.details-text) { break-inside:auto; }
+  :is(.transaction-print,.ledger-print,.daily-print) .no-print, :is(.transaction-print,.ledger-print,.daily-print) .no-print * { display:none; visibility:hidden; }
 }
 
 .calendar-start{min-height:100vh;display:grid;place-items:center;padding:20px}.calendar-start .panel{width:min(560px,100%)}.calendar-start p{margin-top:14px}.calendar-start .btn{margin-top:18px}
+
+@media print {.daily-print table{font-size:8px;table-layout:fixed;width:100%}.daily-print th,.daily-print td{padding:3px 2px}.daily-print thead{display:table-header-group}.daily-print .table-wrap{overflow:visible}}
