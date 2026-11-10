@@ -670,6 +670,6 @@ test('daily report shows each inclusive day and keeps deposit and currencies sep
   await page.getByLabel('از تاریخ (شمسی)').fill('1404/01/01');await page.getByLabel('تا تاریخ (شمسی)').fill('1404/01/03');await page.getByRole('button',{name:'محاسبهٔ راپور روزانه'}).click();
   const body=page.locator('tbody tr');await expect(body).toHaveCount(3);
   await expect(body.nth(0).locator('td').nth(1)).toHaveText('25');await expect(body.nth(1).locator('td').nth(1)).toHaveText('0');await expect(body.nth(2).locator('td').nth(5)).toHaveText('30');
-  await expect(page.getByText('این ارقام موجودی دخل یا سود نیستند',{exact:false})).toBeVisible();
+  await expect(page.getByText('این ارقام موجودی دخل یا سود نیستند',{exact:false})).toBeVisible();await expect(page.getByRole('button',{name:'خروجی CSV روزانه'})).toBeDisabled();
   await page.getByLabel('تا تاریخ (شمسی)').fill('1406/01/01');await expect(body).toHaveCount(0);await page.getByRole('button',{name:'محاسبهٔ راپور روزانه'}).click();await expect(page.getByRole('alert')).toContainText('۳۶۶');
 });

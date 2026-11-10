@@ -73,6 +73,27 @@ pub(crate) async fn daily(db:&SqlitePool,from:String,to:String)->Result<Vec<Dail
     rows.into_iter().map(|r|Ok(DailyRow{date:r.try_get("date").map_err(error)?,summary:summary_from_row(&r)?})).collect()
 }
 
+/// Export only the exact rows displayed, refusing to overwrite an existing file.
+pub(crate) async fn export_daily_csv(db:&SqlitePool,from:String,to:String,expected:Vec<DailyRow>,path:&Path)->Result<(),String> {
+    if !path.is_absolute() || path.extension().and_then(|s|s.to_str()).map(|s|s.to_ascii_lowercase()).as_deref()!=Some("csv") {
+        return Err("مسیر مطلق با پسوند csv انتخاب کنید.".into());
+    }
+    let rows=daily(db,from,to).await?;
+    if rows!=expected {return Err("اطلاعات راپور تغییر کرده‌اند؛ ابتدا دوباره محاسبه کنید.".into());}
+    // Fixed labels, validated ISO dates and formatted integers only: no user text.
+    let mut content=String::from("\u{feff}راپور آزمایشی؛ موجودی دخل یا سود نیست\r\nتاریخ میلادی,فروش نقده افغانی,فروش باقی افغانی,متراژ متر مکعب,رسید مؤثر افغانی,رسید امانت افغانی,مصارف افغانی,مصارف دالری,معاش افغانی\r\n");
+    for row in rows {
+        let s=row.summary;
+        content.push_str(&format!("{},{},{},{},{},{},{},{},{}\r\n",row.date,s.sales_cash,s.sales_credit,s.volume,s.receipts_effective,s.receipts_deposit,s.expenses_afn,s.expenses_usd,s.salaries_afn));
+    }
+    let mut file=std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+        .map_err(|_|"فایل ساخته نشد؛ مسیر را بررسی کنید و نام فایل جدید انتخاب کنید.".to_string())?;
+    if let Err(e)=file.write_all(content.as_bytes()).and_then(|_|file.sync_all()) {
+        eprintln!("Daily report export error: {e}");return Err("نوشتن راپور ناموفق بود؛ فایل ناقص احتمالی را بررسی و حذف کنید.".into());
+    }
+    Ok(())
+}
+
 /// Export the exact result the user viewed, or reject it if underlying totals changed.
 pub(crate) async fn export_csv(db:&SqlitePool, from:String, to:String, expected:RangeSummary, path:&Path)->Result<(),String> {
     if !path.is_absolute() || path.extension().and_then(|s|s.to_str()).map(|s|s.to_ascii_lowercase()).as_deref()!=Some("csv") {
@@ -95,6 +116,21 @@ pub(crate) async fn export_csv(db:&SqlitePool, from:String, to:String, expected:
 #[cfg(test)]
 mod tests {
     use super::*; use crate::service::open_database; use uuid::Uuid;
+    #[tokio::test]
+    async fn daily_export_rejects_stale_rows_and_never_overwrites() {
+        let base=std::env::temp_dir();let path=base.join(format!("daily-export-{}.sqlite3",Uuid::new_v4()));let target=base.join(format!("daily-export-{}.csv",Uuid::new_v4()));
+        let db=open_database(path.clone()).await.unwrap();let from="2025-03-21".to_string();let to="2025-03-22".to_string();
+        let initial=daily(&db,from.clone(),to.clone()).await.unwrap();
+        sqlx::query("INSERT INTO expenses(id,expense_date,description,amount_afn_cents,amount_usd_cents,payment_method) VALUES('x','2025-03-21','x',125,525,'credit')").execute(&db).await.unwrap();
+        assert!(export_daily_csv(&db,from.clone(),to.clone(),initial,&target).await.is_err());assert!(!target.exists());
+        let expected=daily(&db,from.clone(),to.clone()).await.unwrap();
+        assert!(export_daily_csv(&db,from.clone(),to.clone(),daily(&db,from.clone(),to.clone()).await.unwrap(),Path::new("relative.csv")).await.is_err());
+        export_daily_csv(&db,from.clone(),to.clone(),expected,&target).await.unwrap();
+        let bytes=std::fs::read(&target).unwrap();assert!(bytes.starts_with(&[0xef,0xbb,0xbf]));
+        let text=String::from_utf8(bytes.clone()).unwrap();assert!(text.contains("2025-03-21,0.00,0.00,0.000,0.00,0.00,1.25,5.25,0.00"));assert!(text.contains("2025-03-22,0.00"));
+        assert!(export_daily_csv(&db,from.clone(),to.clone(),daily(&db,from,to).await.unwrap(),&target).await.is_err());assert_eq!(std::fs::read(&target).unwrap(),bytes);
+        db.close().await;std::fs::remove_file(path).unwrap();std::fs::remove_file(target).unwrap();
+    }
     #[tokio::test]
     async fn daily_report_covers_inclusive_days_leap_dates_and_limits() {
         let path=std::env::temp_dir().join(format!("daily-{}.sqlite3",Uuid::new_v4()));let db=open_database(path.clone()).await.unwrap();

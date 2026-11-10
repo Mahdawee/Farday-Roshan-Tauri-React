@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { inDesktop } from './store';
-import { RangeSummary, GroupedReport } from './domain';
+import { RangeSummary, GroupedReport, DailyRow } from './domain';
 
 /** Returns false when the user cancels; never simulates a backup in the browser. */
 export async function createBackup(): Promise<boolean> {
@@ -45,4 +45,12 @@ export async function exportGroupedCsv(from:string,to:string,expected:GroupedRep
   if (!path) return false;
   await invoke('export_grouped_csv',{from,to,expected,path});
   return true;
+}
+
+/** Export only the displayed daily rows, revalidated by Rust. */
+export async function exportDailyCsv(from:string,to:string,expected:DailyRow[]):Promise<boolean> {
+  if(!inDesktop) throw new Error('خروجی فایل فقط در نسخهٔ دسکتاپ قابل استفاده است.');
+  const path=await save({title:'محل ذخیرهٔ راپور روزانه CSV',defaultPath:`daily-report-${from}-${to}.csv`,filters:[{name:'CSV',extensions:['csv']}]});
+  if(!path) return false;
+  await invoke('export_daily_csv',{from,to,expected,path});return true;
 }
