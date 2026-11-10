@@ -36,6 +36,9 @@ pub(crate) async fn range_summary(db:&SqlitePool, from:String, to:String)->Resul
     valid_date(&from)?; valid_date(&to)?;
     if from>to { return Err("تاریخ آغاز نباید پس از تاریخ پایان باشد.".into()); }
     let r=sqlx::query(SUMMARY_SQL).bind(from).bind(to).fetch_one(db).await.map_err(error)?;
+    summary_from_row(&r)
+}
+fn summary_from_row(r:&sqlx::sqlite::SqliteRow)->Result<RangeSummary,String> {
     let volume:i64=r.try_get("volume").map_err(error)?;
     Ok(RangeSummary {
         sales_count:r.try_get("sales_count").map_err(error)?, sales_cash:money(r.try_get("sales_cash").map_err(error)?), sales_credit:money(r.try_get("sales_credit").map_err(error)?), volume:format!("{}.{:03}",volume/1000,volume%1000),
@@ -43,6 +46,31 @@ pub(crate) async fn range_summary(db:&SqlitePool, from:String, to:String)->Resul
         expenses_count:r.try_get("expenses_count").map_err(error)?, expenses_afn:money(r.try_get("expenses_afn").map_err(error)?), expenses_usd:money(r.try_get("expenses_usd").map_err(error)?),
         salaries_count:r.try_get("salaries_count").map_err(error)?, salaries_afn:money(r.try_get("salaries_afn").map_err(error)?),
     })
+}
+
+// A calendar CTE provides zero rows on inactive days. Each source is aggregated
+// before joining, avoiding cross-products, and the whole result is one snapshot.
+const DAILY_SQL:&str = "WITH RECURSIVE dates(d) AS (SELECT ?1 UNION ALL SELECT date(d,'+1 day') FROM dates WHERE d<?2),
+ source(d,sales_count,sales_cash,sales_credit,volume,receipts_count,receipts_effective,receipts_deposit,expenses_count,expenses_afn,expenses_usd,salaries_count,salaries_afn) AS (
+ SELECT sale_date,COUNT(*),SUM(CASE WHEN payment_type='cash' THEN total_cents ELSE 0 END),SUM(CASE WHEN payment_type='credit' THEN total_cents ELSE 0 END),SUM(volume_milli),0,0,0,0,0,0,0,0 FROM sales WHERE sale_date BETWEEN ?1 AND ?2 GROUP BY sale_date
+ UNION ALL SELECT receipt_date,0,0,0,0,COUNT(*),SUM(CASE WHEN source<>'deposit' THEN amount_cents ELSE 0 END),SUM(CASE WHEN source='deposit' THEN amount_cents ELSE 0 END),0,0,0,0,0 FROM receipts WHERE receipt_date BETWEEN ?1 AND ?2 GROUP BY receipt_date
+ UNION ALL SELECT expense_date,0,0,0,0,0,0,0,COUNT(*),SUM(amount_afn_cents),SUM(amount_usd_cents),0,0 FROM expenses WHERE expense_date BETWEEN ?1 AND ?2 GROUP BY expense_date
+ UNION ALL SELECT pay_date,0,0,0,0,0,0,0,0,0,0,COUNT(*),SUM(total_cents) FROM salaries WHERE pay_date BETWEEN ?1 AND ?2 GROUP BY pay_date
+ )
+ SELECT dates.d AS date,COALESCE(SUM(sales_count),0) AS sales_count,COALESCE(SUM(sales_cash),0) AS sales_cash,COALESCE(SUM(sales_credit),0) AS sales_credit,COALESCE(SUM(volume),0) AS volume,
+ COALESCE(SUM(receipts_count),0) AS receipts_count,COALESCE(SUM(receipts_effective),0) AS receipts_effective,COALESCE(SUM(receipts_deposit),0) AS receipts_deposit,
+ COALESCE(SUM(expenses_count),0) AS expenses_count,COALESCE(SUM(expenses_afn),0) AS expenses_afn,COALESCE(SUM(expenses_usd),0) AS expenses_usd,
+ COALESCE(SUM(salaries_count),0) AS salaries_count,COALESCE(SUM(salaries_afn),0) AS salaries_afn FROM dates LEFT JOIN source ON dates.d=source.d GROUP BY dates.d ORDER BY dates.d";
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub(crate) struct DailyRow { date:String, #[serde(flatten)] summary:RangeSummary }
+pub(crate) async fn daily(db:&SqlitePool,from:String,to:String)->Result<Vec<DailyRow>,String> {
+    valid_date(&from)?; valid_date(&to)?;
+    if from>to {return Err("تاریخ آغاز نباید پس از تاریخ پایان باشد.".into());}
+    let start=chrono::NaiveDate::parse_from_str(&from,"%Y-%m-%d").map_err(|_|"تاریخ معتبر نیست.")?;
+    let end=chrono::NaiveDate::parse_from_str(&to,"%Y-%m-%d").map_err(|_|"تاریخ معتبر نیست.")?;
+    if end.signed_duration_since(start).num_days()>365 {return Err("بازهٔ راپور روزانه حداکثر ۳۶۶ روز است.".into());}
+    let rows=sqlx::query(DAILY_SQL).bind(from).bind(to).fetch_all(db).await.map_err(error)?;
+    rows.into_iter().map(|r|Ok(DailyRow{date:r.try_get("date").map_err(error)?,summary:summary_from_row(&r)?})).collect()
 }
 
 /// Export the exact result the user viewed, or reject it if underlying totals changed.
@@ -67,6 +95,20 @@ pub(crate) async fn export_csv(db:&SqlitePool, from:String, to:String, expected:
 #[cfg(test)]
 mod tests {
     use super::*; use crate::service::open_database; use uuid::Uuid;
+    #[tokio::test]
+    async fn daily_report_covers_inclusive_days_leap_dates_and_limits() {
+        let path=std::env::temp_dir().join(format!("daily-{}.sqlite3",Uuid::new_v4()));let db=open_database(path.clone()).await.unwrap();
+        sqlx::query("INSERT INTO customers(id,code,name) VALUES('c','C','مشتری')").execute(&db).await.unwrap();
+        sqlx::query("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2024-02-28','x',1000,100,0,100,'cash')").execute(&db).await.unwrap();
+        sqlx::query("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r','c','2024-02-28',300,'deposit')").execute(&db).await.unwrap();
+        let rows=daily(&db,"2024-02-28".into(),"2024-03-01".into()).await.unwrap();
+        assert_eq!(rows.len(),3);assert_eq!(rows[0].summary.sales_cash,"1.00");assert_eq!(rows[0].summary.receipts_deposit,"3.00");
+        assert_eq!(rows[1].date,"2024-02-29");assert_eq!(rows[1].summary.sales_count,0);
+        assert!(daily(&db,"2024-03-01".into(),"2024-02-28".into()).await.is_err());
+        assert!(daily(&db,"2023-01-01".into(),"2024-01-02".into()).await.is_err());
+        assert_eq!(daily(&db,"2024-01-01".into(),"2024-12-31".into()).await.unwrap().len(),366);
+        db.close().await;std::fs::remove_file(path).unwrap();
+    }
     #[tokio::test]
     async fn export_never_overwrites_or_exports_a_stale_summary() {
         let base=std::env::temp_dir(); let path=base.join(format!("export-test-{}.sqlite3",Uuid::new_v4())); let target=base.join(format!("report-{}.csv",Uuid::new_v4()));

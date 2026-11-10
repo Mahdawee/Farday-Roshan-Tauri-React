@@ -39,6 +39,22 @@ class SchemaTest(unittest.TestCase):
         self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s','c','2025-01-01','ریگ',1000,100,0,100,'cash')")
         self.db.execute("INSERT INTO sale_details(sale_id,bill_no) VALUES('s','B1')")
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM audit_events WHERE entity IN ('sales','sale_details')").fetchone()[0],2)
+    def test_daily_report_includes_empty_days_and_does_not_multiply_sources(self):
+        for file in sorted(SCHEMA.parent.glob('*.sql'))[1:]: self.db.executescript(file.read_text())
+        self.db.execute("INSERT INTO employees(id,code,name) VALUES('e','E','کارمند')")
+        self.db.execute("INSERT INTO sales(id,customer_id,sale_date,material,volume_milli,unit_price_cents,freight_cents,total_cents,payment_type) VALUES('s1','c','2024-02-28','x',1000,100,0,100,'cash'),('s2','c','2024-02-28','x',2000,100,0,200,'credit'),('outside','c','2024-03-02','x',1000,100,0,100,'cash')")
+        self.db.execute("INSERT INTO receipts(id,customer_id,receipt_date,amount_cents,source) VALUES('r1','c','2024-02-28',200,'debt'),('r2','c','2024-02-28',300,'deposit')")
+        self.db.execute("INSERT INTO expenses(id,expense_date,description,amount_afn_cents,amount_usd_cents,payment_method) VALUES('x','2024-03-01','x',120,340,'credit')")
+        self.db.execute("INSERT INTO salaries(id,employee_id,period_calendar,period_year,period_month,pay_date,base_cents,bonus_cents,fine_cents,overtime_cents,total_cents,payment_type) VALUES('p','e','miladi',2024,2,'2024-03-01',100,0,300,0,-200,'transfer')")
+        source=(SCHEMA.parent.parent/'src/reports.rs').read_text()
+        query=re.search(r'const DAILY_SQL:&str = "(.*?)";',source,re.S).group(1)
+        self.db.row_factory=sqlite3.Row
+        rows=self.db.execute(query,('2024-02-28','2024-03-01')).fetchall()
+        self.assertEqual([r['date'] for r in rows],['2024-02-28','2024-02-29','2024-03-01'])
+        self.assertEqual((rows[0]['sales_count'],rows[0]['sales_cash'],rows[0]['sales_credit'],rows[0]['volume'],rows[0]['receipts_effective'],rows[0]['receipts_deposit']),(2,100,200,3000,200,300))
+        self.assertEqual((rows[1]['sales_count'],rows[1]['receipts_count'],rows[1]['expenses_count']), (0,0,0))
+        self.assertEqual((rows[2]['expenses_afn'],rows[2]['expenses_usd'],rows[2]['salaries_afn']),(120,340,-200))
+
     def test_transaction_actor_markers_cover_multiple_trigger_events_and_rollback(self):
         for file in sorted(SCHEMA.parent.glob('*.sql'))[1:]:
             self.db.executescript(file.read_text())

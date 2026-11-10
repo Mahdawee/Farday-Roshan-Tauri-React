@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke } from '@tauri-apps/api/core';
 import { ArrowDownLeft, ArrowLeft, ArrowUpLeft, Archive, Box, Building2, Check, ChevronDown, CircleDollarSign, ClipboardList, Clock3, FileBarChart, LayoutDashboard, Menu, Package, Plus, ReceiptText, Search, Settings, ShieldCheck, ShoppingCart, Users, Wallet, X } from 'lucide-react';
-import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, TransactionPage, TransactionDetail, RangeSummary, GroupedReport, ExpenseGroup, CashboxPage, SaleDetails, ReceiptDetails, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
+import { Customer, CustomerInput, Employee, EmployeeInput, Expense, ExpenseInput, Salary, SalaryInput, Attendance, AttendanceInput, AttendanceStatus, TransactionPage, TransactionDetail, RangeSummary, DailyRow, GroupedReport, ExpenseGroup, CashboxPage, SaleDetails, ReceiptDetails, displayMoney, Ledger, ReceiptInput, SaleInput, Snapshot, saleTotal, salaryTotal, formatScaled } from './domain';
 import { inDesktop, store } from './store';
 import { BackupInfo, chooseBackup, createBackup, restoreBackup, exportRangeCsv, exportGroupedCsv } from './backup';
 import { attendanceLabels, summarizeAttendance, monthlyAttendance } from './attendance';
@@ -13,9 +13,9 @@ import { legacySimpleCashDelta } from './legacy-cash';
 import { Calendar, displayCalendarDate, normalizeDateDigits, parseCalendarDate, todayKabul } from './calendar';
 import './style.css';
 
-type Page = 'dashboard' | 'customers' | 'sales' | 'receipts' | 'employees' | 'expenses' | 'salaries' | 'attendance' | 'attendance-report' | 'financial-report' | 'grouped-report' | 'cashbox' | 'backup' | 'audit';
+type Page = 'dashboard' | 'customers' | 'sales' | 'receipts' | 'employees' | 'expenses' | 'salaries' | 'attendance' | 'attendance-report' | 'financial-report' | 'daily-report' | 'grouped-report' | 'cashbox' | 'backup' | 'audit';
 type Modal = 'customer' | 'sale' | 'receipt' | null;
-const pageTitles: Record<Page, string> = { dashboard: 'داشبورد', customers: 'مشتریان', sales: 'فروشات', receipts: 'رسیدات', employees: 'کارمندان', expenses: 'مصارف', salaries: 'معاشات', attendance: 'حضور و غیاب', 'attendance-report': 'راپور حضور ماهانه', 'financial-report': 'راپور مالی بازه‌ای', 'grouped-report': 'راپور تفکیکی', cashbox: 'دفتر دستی دخل', backup: 'پشتیبان‌گیری', audit: 'تاریخچهٔ تغییرات' };
+const pageTitles: Record<Page, string> = { dashboard: 'داشبورد', customers: 'مشتریان', sales: 'فروشات', receipts: 'رسیدات', employees: 'کارمندان', expenses: 'مصارف', salaries: 'معاشات', attendance: 'حضور و غیاب', 'attendance-report': 'راپور حضور ماهانه', 'financial-report': 'راپور مالی بازه‌ای', 'daily-report': 'راپور روزانه', 'grouped-report': 'راپور تفکیکی', cashbox: 'دفتر دستی دخل', backup: 'پشتیبان‌گیری', audit: 'تاریخچهٔ تغییرات' };
 const blankSaleDetails:SaleDetails={bill_no:'',driver_name:'',vehicle_plate:'',destination:'',notes:''};
 const blankReceiptDetails:ReceiptDetails={related_bill_no:'',received_by:'',notes:''};
 const empty: Snapshot = { customers: [], entries: [], credit_sales: '0.00', receipts: '0.00', total_balance: '0.00' };
@@ -68,7 +68,7 @@ function App() {
       <div className="brand"><div className="brand-mark"><Box size={23} strokeWidth={1.8}/></div><div><strong>فردای روشن</strong><span>سیستم مدیریت شرکت</span></div></div>
       <div className="side-label">فضای کاری</div>
       <nav className="nav" aria-label="منوی اصلی">
-        {([[LayoutDashboard, 'داشبورد', 'dashboard'], [Users, 'مشتریان', 'customers'], [Users, 'کارمندان', 'employees'], [ClipboardList, 'حضور و غیاب', 'attendance'], [FileBarChart, 'راپور حضور ماهانه', 'attendance-report'], [FileBarChart, 'راپور مالی بازه‌ای', 'financial-report'], [FileBarChart, 'راپور تفکیکی', 'grouped-report'], [Wallet, 'دفتر دستی دخل', 'cashbox'], [Wallet, 'مصارف', 'expenses'], [CircleDollarSign, 'معاشات', 'salaries'], [ShoppingCart, 'فروشات', 'sales'], [ReceiptText, 'رسیدات', 'receipts'], [Archive, 'پشتیبان‌گیری', 'backup'], [ShieldCheck, 'تاریخچهٔ تغییرات', 'audit']] as const).map(([Icon,label,p]) => <button key={p} className={page === p ? 'active' : ''} onClick={() => navigate(p)}><Icon size={19}/><span>{label}</span>{page === p && <span className="nav-dot"/>}</button>)}
+        {([[LayoutDashboard, 'داشبورد', 'dashboard'], [Users, 'مشتریان', 'customers'], [Users, 'کارمندان', 'employees'], [ClipboardList, 'حضور و غیاب', 'attendance'], [FileBarChart, 'راپور حضور ماهانه', 'attendance-report'], [FileBarChart, 'راپور مالی بازه‌ای', 'financial-report'], [FileBarChart, 'راپور روزانه', 'daily-report'], [FileBarChart, 'راپور تفکیکی', 'grouped-report'], [Wallet, 'دفتر دستی دخل', 'cashbox'], [Wallet, 'مصارف', 'expenses'], [CircleDollarSign, 'معاشات', 'salaries'], [ShoppingCart, 'فروشات', 'sales'], [ReceiptText, 'رسیدات', 'receipts'], [Archive, 'پشتیبان‌گیری', 'backup'], [ShieldCheck, 'تاریخچهٔ تغییرات', 'audit']] as const).map(([Icon,label,p]) => <button key={p} className={page === p ? 'active' : ''} onClick={() => navigate(p)}><Icon size={19}/><span>{label}</span>{page === p && <span className="nav-dot"/>}</button>)}
       </nav>
       <div className="side-label section-label">در مراحل بعدی</div>
       <div className="nav pending">{([[FileBarChart,'راپورها'],[Settings,'تنظیمات']] as const).map(([Icon,label]) => <div key={label}><Icon size={18}/><span>{label}</span><small>به‌زودی</small></div>)}</div>
@@ -95,6 +95,7 @@ function App() {
         {page === 'cashbox' && <Cashbox key={calendar} calendar={calendar}/>}
         {page === 'grouped-report' && <GroupedReports key={calendar} calendar={calendar}/>}
         {page === 'financial-report' && <FinancialReport key={calendar} calendar={calendar}/>}
+        {page === 'daily-report' && <DailyReport key={calendar} calendar={calendar}/>}
         {page === 'attendance-report' && <AttendanceReport key={calendar} records={attendance} staff={staff} calendar={calendar} loading={loading}/>}
         {page === 'expenses' && <ExpenseList key={calendar} expenses={expenses} calendar={calendar} loading={loading} edit={setExpenseModal}/>}
         {page === 'employees' && <EmployeeList staff={staff} calendar={calendar} loading={loading} edit={setEmployeeModal}/>}
@@ -189,6 +190,31 @@ function FinancialReport({calendar}:{calendar:Calendar}) {
         ] as [string,string,string][]).map(([label,value,unit])=><tr key={label}><th>{label}</th><td><b dir="ltr">{value}</b> <span className="unit">{unit}</span></td></tr>)}
       </tbody></table></div><div className="expense-feedback"><h3>مقایسهٔ آزمایشی با دخل سادهٔ نسخهٔ پیشین</h3><p>تغییر محاسبه‌شدهٔ بازه: <b dir="ltr">{displayMoney(legacySimpleCashDelta(result.data))}</b> افغانی</p><div className="form-hint salary-warning">فروش نقده + تمام رسیدها (از جمله امانت) − تمام مصارف افغانی − تمام معاش‌ها؛ مطابق حالت سادهٔ سابق، مصارف باقی و معاش حواله هم شامل‌اند و معاش منفی اثر معکوس دارد. این عدد ماندهٔ واقعی دخل یا سود نیست و ماندهٔ اولیه، دفتر دستی و دالر در آن حساب نشده‌اند. از افزودن آن به دفتر دستی برای جلوگیری از شمارش دوباره خودداری کنید. این مقایسه نیازمند تأیید حسابدار است و در CSV فعلی وجود ندارد.</div></div><div className="expense-feedback"><button type="button" className="btn secondary" disabled={!inDesktop || busy} onClick={exportCsv}>خروجی CSV</button> <span className="form-hint">{inDesktop ? 'فایل باید جدید باشد؛ اگر جمع‌ها تغییر کرده‌اند، ابتدا راپور را دوباره محاسبه کنید.' : 'خروجی فایل در پیش‌نمایش مرورگر فعال نیست.'}</span></div></>}
     <div className="form-hint">رسید امانت از بدهی کم نمی‌شود؛ باقی رسیدها در جمع مؤثر بر بدهی آمده‌اند. مصارف نقده و باقی هر دو شامل‌اند؛ معاش بر اساس تاریخ پرداخت است و ممکن است منفی باشد. ارزها تبدیل یا جمع نمی‌شوند. این ارقام موجودی دخل، سود یا زیان نیستند؛ قواعد و داده‌ها باید با حسابدار تطبیق شوند. چاپ و سایر راپورهای قدیمی هنوز آماده نیست.</div>
+  </section>;
+}
+
+function DailyReport({calendar}:{calendar:Calendar}) {
+  const today=displayCalendarDate(todayKabul(),calendar);
+  const [from,setFrom]=useState(today),[to,setTo]=useState(today);
+  const [result,setResult]=useState<{rows:DailyRow[];from:string;to:string}|null>(null);
+  const [busy,setBusy]=useState(false),[error,setError]=useState('');
+  const submit=async(e:React.FormEvent)=>{
+    e.preventDefault();setResult(null);setError('');
+    const start=parseCalendarDate(from,calendar),end=parseCalendarDate(to,calendar);
+    if(!start || !end){setError('تاریخ آغاز و پایان معتبر وارد کنید.');return;}
+    if(start>end){setError('تاریخ آغاز نباید پس از تاریخ پایان باشد.');return;}
+    setBusy(true);try {const rows=await store.dailyReport(start,end);setResult({rows,from:start,to:end});} catch(e){setError(String(e));} finally{setBusy(false);}
+  };
+  return <section className="panel listing"><div className="panel-head"><div><h2>راپور روزانهٔ آزمایشی</h2><p>جمع روزانهٔ فروش، رسید، مصرف و معاش؛ هر دو سر بازه شامل‌اند.</p></div></div>
+    <form onSubmit={submit}><div className="expense-filters">
+      <Field label={`از تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`} required><input required disabled={busy} dir="ltr" value={from} onChange={e=>{setFrom(e.target.value);setResult(null);setError('');}}/></Field>
+      <Field label={`تا تاریخ (${calendar==='shamsi'?'شمسی':'میلادی'})`} required><input required disabled={busy} dir="ltr" value={to} onChange={e=>{setTo(e.target.value);setResult(null);setError('');}}/></Field>
+    </div><div className="expense-feedback"><button className="btn primary" disabled={busy}>{busy?'در حال محاسبه...':'محاسبهٔ راپور روزانه'}</button></div></form>
+    {error && <div className="error expense-feedback" role="alert">{error}</div>}
+    {result && <><div className="form-hint">{result.rows.length} روز، از {displayCalendarDate(result.from,calendar)} تا {displayCalendarDate(result.to,calendar)}. برای اطلاعات تازه دوباره محاسبه کنید.</div>
+      <div className="table-wrap"><table><thead><tr><th>تاریخ</th><th>فروش نقده (افغانی)</th><th>فروش باقی (افغانی)</th><th>متراژ</th><th>رسید مؤثر (افغانی)</th><th>رسید امانت (افغانی)</th><th>مصارف (افغانی)</th><th>مصارف (دالر)</th><th>معاش (افغانی)</th></tr></thead>
+      <tbody>{result.rows.map(row=><tr key={row.date}><td dir="ltr">{displayCalendarDate(row.date,calendar)}</td>{[row.sales_cash,row.sales_credit,row.volume,row.receipts_effective,row.receipts_deposit,row.expenses_afn,row.expenses_usd,row.salaries_afn].map((value,i)=><td key={i} dir="ltr">{i===2?value:displayMoney(value)}</td>)}</tr>)}</tbody></table></div></>}
+    <div className="form-hint salary-warning">حداکثر بازه ۳۶۶ روز است و روزهای بدون فعالیت صفر نشان داده می‌شوند. رسید امانت جداست؛ مصارف نقده و باقی و معاش منفی نیز شامل‌اند. ارزها تبدیل نمی‌شوند. این ارقام موجودی دخل یا سود نیستند و دفتر دستی در آن‌ها شامل نیست. قواعد باید با حسابدار تطبیق شوند؛ چاپ و خروجی فایل این راپور هنوز آماده نیست.</div>
   </section>;
 }
 

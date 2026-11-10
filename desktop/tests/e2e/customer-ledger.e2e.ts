@@ -659,3 +659,17 @@ test('browser preview does not claim to provide an audit trail',async({page})=>{
   await expect(page.getByText('تاریخچه فقط در نسخهٔ دسکتاپ ثبت و نمایش داده می‌شود؛ پیش‌نمایش مرورگر فاقد آن است.')).toBeVisible();
   await expect(page.getByText('کاربر انجام‌دهنده هنوز مشخص نیست.',{exact:false})).toBeVisible();
 });
+
+test('daily report shows each inclusive day and keeps deposit and currencies separate',async({page})=>{
+  await page.goto('/');
+  await page.getByRole('button',{name:'فروشات',exact:true}).click(); await page.getByRole('button',{name:'فروش جدید'}).click();let dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ شمسی').fill('1404/01/01');await dialog.getByLabel('نوع پرداخت').selectOption('cash');await dialog.getByLabel('متراژ (متر مکعب)').fill('1');await dialog.getByLabel('قیمت فی متر (افغانی)').fill('25');await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('button',{name:'رسیدات',exact:true}).click();await page.getByRole('button',{name:'رسید جدید'}).click();dialog=page.getByRole('dialog');
+  await dialog.getByLabel('تاریخ شمسی').fill('1404/01/03');await dialog.getByLabel('مبلغ رسید (افغانی)').fill('30');await dialog.getByLabel('منبع رسید').selectOption('deposit');await dialog.getByRole('button',{name:'ذخیره معلومات'}).click();
+  await page.getByRole('button',{name:'راپور روزانه',exact:true}).click();
+  await page.getByLabel('از تاریخ (شمسی)').fill('1404/01/01');await page.getByLabel('تا تاریخ (شمسی)').fill('1404/01/03');await page.getByRole('button',{name:'محاسبهٔ راپور روزانه'}).click();
+  const body=page.locator('tbody tr');await expect(body).toHaveCount(3);
+  await expect(body.nth(0).locator('td').nth(1)).toHaveText('25');await expect(body.nth(1).locator('td').nth(1)).toHaveText('0');await expect(body.nth(2).locator('td').nth(5)).toHaveText('30');
+  await expect(page.getByText('این ارقام موجودی دخل یا سود نیستند',{exact:false})).toBeVisible();
+  await page.getByLabel('تا تاریخ (شمسی)').fill('1406/01/01');await expect(body).toHaveCount(0);await page.getByRole('button',{name:'محاسبهٔ راپور روزانه'}).click();await expect(page.getByRole('alert')).toContainText('۳۶۶');
+});

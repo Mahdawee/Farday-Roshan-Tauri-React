@@ -386,3 +386,19 @@ it('rejects stale attendance while accepting employee name changes and preservin
   await s.saveAttendance(fresh.id,{...fresh,notes:'جدید'},fresh);
   expect((await s.attendance())[0].notes).toBe('جدید');
 });
+
+describe('daily report',()=>{
+  it('includes quiet days and leap days and matches the range totals',async()=>{
+    const s=createDemoStore(false);
+    await s.addCustomer({code:'C',name:'C',phone:'',opening:'0'});const c=(await s.snapshot()).customers[0].id;
+    await s.addSale({customer_id:c,date:'2024-02-28',material:'ریگ',volume:'1',unit_price:'2',freight:'0',payment_type:'cash'});
+    await s.addReceipt({customer_id:c,date:'2024-03-01',amount:'3',source:'deposit'});
+    const rows=await s.dailyReport('2024-02-28','2024-03-01');
+    expect(rows.map(r=>r.date)).toEqual(['2024-02-28','2024-02-29','2024-03-01']);
+    expect(rows[0].sales_cash).toBe('2.00');expect(rows[1].sales_count).toBe(0);expect(rows[2].receipts_deposit).toBe('3.00');
+    expect((await s.dailyReport('2024-01-01','2024-12-31')).length).toBe(366);
+    await expect(s.dailyReport('2023-01-01','2024-01-02')).rejects.toThrow('۳۶۶');
+    await expect(s.dailyReport('2024-03-01','2024-02-28')).rejects.toThrow('تاریخ آغاز');
+    await expect(s.dailyReport('2023-02-29','2023-03-01')).rejects.toThrow();
+  });
+});

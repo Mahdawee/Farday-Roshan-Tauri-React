@@ -1,7 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { normalizeDateDigits } from './calendar';
 import type { Calendar } from './calendar';
-import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary, SaleDetails, ReceiptDetails, CashboxEntry, CashboxPage, GroupedReport } from './domain';
+import { Customer, CustomerInput, Employee, Expense, Salary, Attendance, TransactionPage, TransactionDetail, Entry, Ledger, formatScaled, parseScaled, ReceiptInput, SaleInput, saleTotal, salaryTotal, validSalaryPeriod, Snapshot, Store, RangeSummary, DailyRow, SaleDetails, ReceiptDetails, CashboxEntry, CashboxPage, GroupedReport } from './domain';
 
 const tauriStore: Store = {
   calendarPreference: () => invoke<Calendar>('get_calendar_preference'),
@@ -10,6 +10,7 @@ const tauriStore: Store = {
   cashbox: query => invoke<CashboxPage>('cashbox_page',{query}),
   addCashbox: input => invoke('add_cashbox_entry',{input}),
   rangeSummary: (from,to) => invoke<RangeSummary>('range_summary', {from,to}),
+  dailyReport: (from,to) => invoke<DailyRow[]>('daily_report',{from,to}),
   snapshot: () => invoke<Snapshot>('snapshot'),
   transactions: query => invoke<TransactionPage>('list_transactions', { query }),
   transactionDetail: (kind,id) => invoke<TransactionDetail>('transaction_detail', { kind,id }),
@@ -124,6 +125,17 @@ export function createDemoStore(seed = true): Store {
         receipts_count:receipts.length, receipts_effective:sum(receipts.filter(e=>e.subtype!=='deposit').map(e=>e.amount)), receipts_deposit:sum(receipts.filter(e=>e.subtype==='deposit').map(e=>e.amount)),
         expenses_count:ex.length, expenses_afn:sum(ex.map(e=>e.amount_afn)), expenses_usd:sum(ex.map(e=>e.amount_usd)), salaries_count:sal.length, salaries_afn:sum(sal.map(s=>s.total)),
       };
+    },
+    async dailyReport(from,to) {
+      validateDate(from); validateDate(to); if(from>to) throw new Error('تاریخ آغاز نباید پس از تاریخ پایان باشد.');
+      const start=Date.parse(`${from}T00:00:00Z`), end=Date.parse(`${to}T00:00:00Z`);
+      if ((end-start)/86400000>365) throw new Error('بازهٔ راپور روزانه حداکثر ۳۶۶ روز است.');
+      const rows:DailyRow[]=[];
+      for(let t=start;t<=end;t+=86400000) {
+        const date=new Date(t).toISOString().slice(0,10);
+        rows.push({date,...await this.rangeSummary(date,date)});
+      }
+      return rows;
     },
     async snapshot(): Promise<Snapshot> {
       return structuredClone({ customers, entries: entries.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,100), credit_sales: formatScaled(credit), receipts: formatScaled(receipts), total_balance: formatScaled(customers.reduce((a,c) => a + storedCents(c.balance), 0n)) });
@@ -331,6 +343,7 @@ export const store: Store = inDesktop ? tauriStore : import.meta.env.DEV ? creat
   cashbox: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   addCashbox: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   rangeSummary: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
+  dailyReport: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   transactionDetail: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   transactions: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },
   snapshot: async () => { throw new Error('نسخهٔ آنلاین هنوز پیاده‌سازی نشده است.'); },

@@ -109,6 +109,9 @@ async fn transaction_detail(db: State<'_, Database>, kind: String, id: String) -
 async fn range_summary(db: State<'_, Database>, from: String, to: String) -> Result<reports::RangeSummary, String> { reports::range_summary(&db.0, from, to).await }
 
 #[tauri::command]
+async fn daily_report(db: State<'_, Database>, from:String, to:String) -> Result<Vec<reports::DailyRow>,String> { reports::daily(&db.0,from,to).await }
+
+#[tauri::command]
 async fn grouped_report(db: State<'_, Database>, from: String, to: String) -> Result<grouped_reports::GroupedReport, String> { grouped_reports::grouped(&db.0, from, to).await }
 
 #[tauri::command]
@@ -141,7 +144,7 @@ pub fn run() {
             app.manage(Database(pool));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail, range_summary, grouped_report, export_grouped_csv, export_range_csv, get_calendar_preference, set_calendar_preference, cashbox_page, add_cashbox_entry, audit_page])
+        .invoke_handler(tauri::generate_handler![snapshot, add_customer, update_customer, add_sale, add_receipt, update_sale, update_receipt, customer_ledger, create_backup, inspect_backup, restore_backup, list_employees, save_employee, list_expenses, save_expense, list_salaries, save_salary, list_attendance, save_attendance, create_attendance_batch, list_transactions, transaction_detail, range_summary, daily_report, grouped_report, export_grouped_csv, export_range_csv, get_calendar_preference, set_calendar_preference, cashbox_page, add_cashbox_entry, audit_page])
         .run(tauri::generate_context!())
         .expect("failed to run application");
 }
