@@ -1,0 +1,36 @@
+import {useEffect,useState} from 'react';
+import type {FormEvent} from 'react';
+import {RefreshCw,Save,Trash2} from 'lucide-react';
+import {formatMoney,parseMoney} from './customers';
+import {blankEmployee,validateEmployee} from './employees';
+import type {Employee,EmployeeInput,EmployeeStatus} from './employees';
+import {employeeStore} from './employeeStore';
+
+type TextKey=Exclude<keyof EmployeeInput,'base_salary_minor'|'status'|'hire_date'>;
+const fields:[TextKey,string,number][]=[['emp_code','کد کارمند',20],['full_name','نام و تخلص',120],['father_name','نام پدر',120],['job_title','وظیفه',80],['phone','شماره تماس کارمند',40],['tazkira_no','شماره تذکره',40],['address','آدرس کارمند',255],['contract_duration','مدت قرارداد',60],['notes','توضیحات کارمند',10000]];
+const label:Record<EmployeeStatus,string>={active:'فعال',inactive:'غیرفعال'};
+export default function EmployeePage(){
+  const [items,setItems]=useState<Employee[]|null>(null),[form,setForm]=useState<EmployeeInput>({...blankEmployee}),[editing,setEditing]=useState<Employee|null>(null),[money,setMoney]=useState('0');
+  const [query,setQuery]=useState(''),[status,setStatus]=useState<'all'|EmployeeStatus>('all'),[job,setJob]=useState(''),[page,setPage]=useState(1),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+  const load=async()=>setItems(await employeeStore.list());
+  useEffect(()=>{load().catch(e=>setError(String(e)));},[]);
+  const reset=()=>{setForm({...blankEmployee});setEditing(null);setMoney('0');};
+  const run=async(fn:()=>Promise<void>,message:string)=>{if(busy)return;setBusy(true);setError('');setNotice('');try{await fn();await load();setNotice(message);}catch(e){setError(String(e));}finally{setBusy(false);}};
+  const submit=(e:FormEvent)=>{e.preventDefault();void run(async()=>{const input={...form,base_salary_minor:parseMoney(money,'معاش ثابت')};validateEmployee(input);await employeeStore.save(editing?.id??null,editing?.revision??null,input);reset();},'کارمند ذخیره شد.');};
+  const edit=(e:Employee)=>{setEditing(e);const {id:_id,revision:_revision,...input}=e;setForm(input);setMoney(formatMoney(e.base_salary_minor));setError('');setNotice('');};
+  const remove=(e:Employee)=>{if(window.confirm(`کارمند «${e.full_name}» حذف شود؟`))void run(async()=>{await employeeStore.delete(e.id,e.revision);if(editing?.id===e.id)reset();},'کارمند حذف شد.');};
+  const folded=(s:string)=>s.toLocaleLowerCase();
+  const filtered=(items??[]).filter(e=>(status==='all'||e.status===status)&&folded(e.job_title).includes(folded(job.trim()))&&[e.emp_code,e.full_name,e.father_name,e.job_title,e.phone,e.tazkira_no,e.address].some(x=>folded(x).includes(folded(query.trim()))));
+  const pages=Math.max(1,Math.ceil(filtered.length/25)),current=Math.min(page,pages);
+  const active=items?.filter(e=>e.status==='active')??[];
+  const total=active.reduce((sum,e)=>sum+BigInt(e.base_salary_minor),0n);
+  return <>
+    {error&&<div className="alert error no-print" role="alert">{error}</div>}{notice&&<div className="alert success no-print" role="status">{notice}</div>}
+    <section className="panel"><div className="panel-head"><div><h2>فهرست کارمندان</h2><p>تعداد: {items?.length??'—'} · فعال: {items===null?'—':active.length} · مجموع معاش ثابت کارمندان فعال: {items===null?'—':formatMoney(total.toString())} افغانی</p></div><button className="secondary no-print" disabled={busy} onClick={()=>{if(window.confirm('فهرست دوباره خوانده شود؟ فرم ویرایش پاک می‌شود.'))void run(async()=>reset(),'فهرست تازه خوانده شد.');}}><RefreshCw size={15}/> خواندن دوباره</button></div>
+      <p className="muted">حضور، پرداخت معاش، پروفایل و تاریخچه هنوز ساخته نشده‌اند. معاش ثابت به معنی پرداخت‌شده نیست. تعداد شرکت یک مقدار دستی جداگانه است.</p>
+      <div className="form-grid no-print"><label>جستجوی کارمند<input value={query} onChange={e=>{setQuery(e.target.value);setPage(1);}} placeholder="کد، نام، وظیفه، تماس، تذکره یا آدرس"/></label><label>فیلتر وضعیت<select value={status} onChange={e=>{setStatus(e.target.value as typeof status);setPage(1);}}><option value="all">همه</option><option value="active">فعال</option><option value="inactive">غیرفعال</option></select></label><label>فیلتر وظیفه<input value={job} onChange={e=>{setJob(e.target.value);setPage(1);}}/></label></div>
+      {items===null?<p>فهرست هنوز خوانده نشده است.</p>:<><div className="table-wrap"><table><thead><tr><th>کد</th><th>نام</th><th>نام پدر</th><th>وظیفه</th><th>تاریخ استخدام میلادی</th><th>معاش ثابت</th><th>تماس</th><th>تذکره</th><th>آدرس</th><th>قرارداد</th><th>وضعیت</th><th>توضیحات</th><th className="no-print">عملیات</th></tr></thead><tbody>{filtered.slice((current-1)*25,current*25).map(e=><tr key={e.id}><td>{e.emp_code}</td><td>{e.full_name}</td><td>{e.father_name||'—'}</td><td>{e.job_title||'—'}</td><td dir="ltr">{e.hire_date||'—'}</td><td dir="ltr">{formatMoney(e.base_salary_minor)}</td><td>{e.phone||'—'}</td><td>{e.tazkira_no||'—'}</td><td>{e.address||'—'}</td><td>{e.contract_duration||'—'}</td><td>{label[e.status]}</td><td>{e.notes||'—'}</td><td className="no-print"><button disabled={busy} onClick={()=>edit(e)}>ویرایش</button> <button className="danger" disabled={busy} onClick={()=>remove(e)}><Trash2 size={14}/> حذف</button></td></tr>)}</tbody></table>{filtered.length===0&&<p className="empty">کارمند یافت نشد.</p>}</div><div className="pagination no-print"><button disabled={current<=1} onClick={()=>setPage(current-1)}>صفحهٔ قبل</button><span>صفحهٔ {current} از {pages} · {filtered.length} نتیجه</span><button disabled={current>=pages} onClick={()=>setPage(current+1)}>صفحهٔ بعد</button></div></>}
+    </section>
+    <section className="panel no-print"><div className="panel-head"><div><h2>{editing?'ویرایش کارمند':'ثبت کارمند جدید'}</h2><p>کد کارمند را فعلاً دستی و یکتا وارد کنید.</p></div></div><form onSubmit={submit}><div className="form-grid">{fields.map(([key,title,max])=><label key={key} className={key==='notes'?'wide':''}><span>{title}</span>{key==='notes'?<textarea maxLength={max} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})}/>:<input required={key==='emp_code'||key==='full_name'} maxLength={max} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})}/>}</label>)}<label><span>تاریخ استخدام میلادی</span><input type="date" min="0001-01-01" max="9999-12-31" value={form.hire_date} onChange={e=>setForm({...form,hire_date:e.target.value})}/><small>فعلاً فقط تقویم میلادی پشتیبانی می‌شود.</small></label><label><span>معاش ثابت (افغانی)</span><input inputMode="decimal" value={money} onChange={e=>setMoney(e.target.value)}/><small>حداکثر دو رقم اعشار؛ این مقدار پرداخت معاش نیست.</small></label><label><span>وضعیت کارمند</span><select value={form.status} onChange={e=>setForm({...form,status:e.target.value as EmployeeStatus})}><option value="active">فعال</option><option value="inactive">غیرفعال</option></select></label></div><div className="actions"><button className="primary" disabled={busy}><Save size={16}/>{editing?'ذخیره تغییرات کارمند':'ثبت کارمند'}</button>{editing&&<button type="button" className="secondary" onClick={reset}>انصراف</button>}</div></form></section>
+  </>;
+}

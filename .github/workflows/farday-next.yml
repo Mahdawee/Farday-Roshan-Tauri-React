@@ -57,7 +57,15 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Test Rust and SQLite
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        shell: pwsh
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml 2>&1 | Tee-Object -FilePath cargo-test.log
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content cargo-test.log -Tail 100) -join "`n"
+            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error::$escaped"
+            exit 1
+          }
       - name: Build unsigned experimental Windows installer
         run: npm run tauri -- build --debug --ci --no-sign --config src-tauri/tauri.experimental.conf.json
       - uses: actions/upload-artifact@v4

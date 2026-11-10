@@ -1,5 +1,6 @@
 mod company;
 mod customers;
+mod employees;
 use sqlx::{sqlite::{SqliteConnectOptions,SqlitePoolOptions},SqlitePool};
 use std::{path::PathBuf,time::Duration};
 use tauri::{Manager,State};
@@ -26,13 +27,20 @@ async fn save_customer(db:State<'_,Database>,id:Option<String>,revision:Option<i
 #[tauri::command]
 async fn delete_customer(db:State<'_,Database>,id:String,revision:i64)->Result<(),String>{customers::delete(&db.0,id,revision).await}
 
+#[tauri::command]
+async fn list_employees(db:State<'_,Database>)->Result<Vec<employees::Employee>,String>{employees::list(&db.0).await}
+#[tauri::command]
+async fn save_employee(db:State<'_,Database>,id:Option<String>,revision:Option<i64>,input:employees::EmployeeInput)->Result<(),String>{employees::save(&db.0,id,revision,input).await}
+#[tauri::command]
+async fn delete_employee(db:State<'_,Database>,id:String,revision:i64)->Result<(),String>{employees::delete(&db.0,id,revision).await}
+
 #[cfg_attr(mobile,tauri::mobile_entry_point)]
 pub fn run(){
     tauri::Builder::default().setup(|app|{
         let dir=app.path().app_data_dir()?;std::fs::create_dir_all(&dir)?;
         let db=tauri::async_runtime::block_on(open_database(dir.join("farday-next.sqlite3")))?;
         app.manage(Database(db));Ok(())
-    }).invoke_handler(tauri::generate_handler![company_snapshot,save_company,save_machine,delete_machine,list_customers,save_customer,delete_customer])
+    }).invoke_handler(tauri::generate_handler![company_snapshot,save_company,save_machine,delete_machine,list_customers,save_customer,delete_customer,list_employees,save_employee,delete_employee])
       .run(tauri::generate_context!()).expect("failed to start preview");
 }
 
@@ -42,23 +50,28 @@ mod migration_tests {
     use sqlx::migrate::{Migrate,Migrator};
     static MIGRATIONS:Migrator=sqlx::migrate!();
     #[tokio::test]
-    async fn upgrading_company_database_preserves_existing_data() {
-        let path=std::env::temp_dir().join(format!("farday-upgrade-{}.sqlite3",uuid::Uuid::new_v4()));
-        let options=SqliteConnectOptions::new().filename(&path).create_if_missing(true);
-        let pool=SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
-        {
-            let mut conn=pool.acquire().await.unwrap();
-            conn.ensure_migrations_table().await.unwrap();
-            conn.apply(MIGRATIONS.iter().find(|m|m.version==1).unwrap()).await.unwrap();
+    async fn upgrading_old_databases_preserves_existing_data() {
+        for last in [1,2] {
+            let path=std::env::temp_dir().join(format!("farday-upgrade-{}.sqlite3",uuid::Uuid::new_v4()));
+            let options=SqliteConnectOptions::new().filename(&path).create_if_missing(true);
+            let pool=SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
+            {
+                let mut conn=pool.acquire().await.unwrap();
+                conn.ensure_migrations_table().await.unwrap();
+                for version in 1..=last {conn.apply(MIGRATIONS.iter().find(|m|m.version==version).unwrap()).await.unwrap();}
+            }
+            sqlx::query("UPDATE company SET name='شرکت موجود' WHERE id=1").execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO machines(id,name,count,status,notes,sort_order) VALUES('old','لودر',2,'active','',1)").execute(&pool).await.unwrap();
+            if last==2 {sqlx::query("INSERT INTO customers(id,code,name,opening_balance_minor) VALUES('old-c','CUS-001','مشتری موجود',12345)").execute(&pool).await.unwrap();}
+            pool.close().await;
+            let pool=open_database(path.clone()).await.unwrap();
+            let name:String=sqlx::query_scalar("SELECT name FROM company WHERE id=1").fetch_one(&pool).await.unwrap();
+            let machines:i64=sqlx::query_scalar("SELECT COUNT(*) FROM machines").fetch_one(&pool).await.unwrap();
+            let customers:i64=sqlx::query_scalar("SELECT COUNT(*) FROM customers").fetch_one(&pool).await.unwrap();
+            let employees:i64=sqlx::query_scalar("SELECT COUNT(*) FROM employees").fetch_one(&pool).await.unwrap();
+            assert_eq!(name,"شرکت موجود");assert_eq!(machines,1);assert_eq!(customers,if last==2 {1}else{0});assert_eq!(employees,0);
+            if last==2 {let balance:i64=sqlx::query_scalar("SELECT opening_balance_minor FROM customers WHERE id='old-c'").fetch_one(&pool).await.unwrap();assert_eq!(balance,12345);}
+            pool.close().await;std::fs::remove_file(path).unwrap();
         }
-        sqlx::query("UPDATE company SET name='شرکت موجود' WHERE id=1").execute(&pool).await.unwrap();
-        sqlx::query("INSERT INTO machines(id,name,count,status,notes,sort_order) VALUES('old','لودر',2,'active','',1)").execute(&pool).await.unwrap();
-        pool.close().await;
-        let pool=open_database(path.clone()).await.unwrap();
-        let name:String=sqlx::query_scalar("SELECT name FROM company WHERE id=1").fetch_one(&pool).await.unwrap();
-        let machines:i64=sqlx::query_scalar("SELECT COUNT(*) FROM machines").fetch_one(&pool).await.unwrap();
-        let customers:i64=sqlx::query_scalar("SELECT COUNT(*) FROM customers").fetch_one(&pool).await.unwrap();
-        assert_eq!(name,"شرکت موجود");assert_eq!(machines,1);assert_eq!(customers,0);
-        pool.close().await;std::fs::remove_file(path).unwrap();
     }
 }

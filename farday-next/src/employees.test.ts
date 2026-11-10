@@ -1,0 +1,9 @@
+import {describe,it,expect} from 'vitest';
+import {blankEmployee,validDate,validateEmployee} from './employees';
+import {createEmployeePreviewStore} from './employeeStore';
+
+describe('employee validation',()=>{
+  it('validates Gregorian dates including leap days',()=>{for(const s of ['', '2024-02-29','2000-02-29','0001-01-01'])expect(validDate(s)).toBe(true);for(const s of ['2023-02-29','1900-02-29','0000-01-01','2024-04-31','2024-2-01','9999-99-99'])expect(validDate(s)).toBe(false);});
+  it('validates all field limits and exact salary range',()=>{const e={...blankEmployee,emp_code:'EMP-001',full_name:'آزمایش'};expect(()=>validateEmployee({...e,base_salary_minor:'99999999999999'})).not.toThrow();for(const s of ['100000000000000','-100000000000000','-0','01','1.5'])expect(()=>validateEmployee({...e,base_salary_minor:s})).toThrow();expect(()=>validateEmployee({...e,job_title:'x'.repeat(81)})).toThrow();expect(()=>validateEmployee({...e,status:'unknown' as never})).toThrow();});
+});
+describe('temporary employee store',()=>{it('checks uniqueness and revisions and retains all fields',async()=>{const s=createEmployeePreviewStore();const e={...blankEmployee,emp_code:'EMP-001',full_name:'احمد',father_name:'علی',job_title:'دریور',hire_date:'2024-02-29',base_salary_minor:'99999999999999',phone:'0700',tazkira_no:'123',address:'کابل',contract_duration:'یک سال',notes:'نمونه'};await s.save(null,null,e);await expect(s.save(null,null,{...e,emp_code:'emp-001'})).rejects.toThrow('تکراری');const first=(await s.list())[0];expect(first).toMatchObject(e);await s.save(first.id,first.revision,{...e,status:'inactive'});await expect(s.delete(first.id,first.revision)).rejects.toThrow();const current=(await s.list())[0];expect(current.status).toBe('inactive');await s.delete(current.id,current.revision);expect(await s.list()).toHaveLength(0);expect(await createEmployeePreviewStore().list()).toHaveLength(0);});});

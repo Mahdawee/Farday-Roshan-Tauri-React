@@ -4,13 +4,13 @@ export interface CustomerStore {list():Promise<Customer[]>;save(id:string|null,r
 export const blankCustomer:CustomerInput={code:'',name:'',contact_person:'',phone:'',vehicle_plate:'',opening_balance_minor:'0',address:'',notes:''};
 const max=9999999999999999n;
 /** Parse decimal text directly into hundredths, never via Number. */
-export function parseMoney(raw:string):string {
+export function parseMoney(raw:string,label="مبلغ اولیه"):string {
   const fa='۰۱۲۳۴۵۶۷۸۹',ar='٠١٢٣٤٥٦٧٨٩';
   const text=raw.trim().replace(/[۰-۹٠-٩]/g,c=>String(fa.includes(c)?fa.indexOf(c):ar.indexOf(c))).replace('٫','.');
-  if(!/^-?\d+(?:\.\d{1,2})?$/.test(text)) throw new Error('مبلغ اولیه را با حداکثر دو رقم اعشار وارد کنید.');
+  if(!/^-?\d+(?:\.\d{1,2})?$/.test(text)) throw new Error(`${label} را با حداکثر دو رقم اعشار وارد کنید.`);
   const neg=text.startsWith('-');const [whole,fraction='']=text.replace('-','').split('.');
-  if(whole.length>16)throw new Error('مبلغ اولیه از محدودهٔ مجاز بیرون است.');
-  const amount=BigInt(whole)*100n+BigInt(fraction.padEnd(2,'0'));if(amount>max)throw new Error('مبلغ اولیه از محدودهٔ مجاز بیرون است.');
+  if(whole.length>16)throw new Error(`${label} از محدودهٔ مجاز بیرون است.`);
+  const amount=BigInt(whole)*100n+BigInt(fraction.padEnd(2,'0'));if(amount>max)throw new Error(`${label} از محدودهٔ مجاز بیرون است.`);
   return (neg&&amount!==0n?-amount:amount).toString();
 }
 export function formatMoney(minor:string):string {const n=BigInt(minor),a=n<0n?-n:n;return `${n<0n?'-':''}${a/100n}.${(a%100n).toString().padStart(2,'0')}`;}
