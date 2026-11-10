@@ -14,7 +14,7 @@ struct Queries {list:&'static str,insert:&'static str,update:&'static str,delete
 impl Kind {
     // SQL identifiers are hard-coded and cannot be supplied by the frontend.
     fn queries(self)->Queries {match self {
-        Kind::Material=>Queries{list:"SELECT id,name,active,sort_order,unit,NULL payer_kind,NULL affects_balance,revision FROM material_types ORDER BY sort_order,name,id",insert:"INSERT INTO material_types(id,name,active,sort_order,unit) VALUES(?,?,?,?,?)",update:"UPDATE material_types SET name=?,active=?,sort_order=?,unit=?,revision=revision+1 WHERE id=? AND revision=?",delete:"DELETE FROM material_types WHERE id=? AND revision=?"},
+        Kind::Material=>Queries{list:"SELECT id,name,active,sort_order,unit,NULL payer_kind,NULL affects_balance,revision FROM material_types ORDER BY sort_order,name,id",insert:"INSERT INTO material_types(id,name,active,sort_order,unit) VALUES(?,?,?,?,?)",update:"UPDATE material_types SET name=?,active=?,sort_order=?,unit=?,revision=revision+1 WHERE id=? AND revision=?",delete:"DELETE FROM material_types WHERE id=? AND revision=? AND NOT EXISTS(SELECT 1 FROM sales WHERE material_id=?)"},
         Kind::Expense=>Queries{list:"SELECT id,name,active,sort_order,NULL unit,NULL payer_kind,NULL affects_balance,revision FROM expense_types ORDER BY sort_order,name,id",insert:"INSERT INTO expense_types(id,name,active,sort_order) VALUES(?,?,?,?)",update:"UPDATE expense_types SET name=?,active=?,sort_order=?,revision=revision+1 WHERE id=? AND revision=?",delete:"DELETE FROM expense_types WHERE id=? AND revision=?"},
         Kind::Payer=>Queries{list:"SELECT id,name,active,sort_order,NULL unit,payer_kind,NULL affects_balance,revision FROM payers ORDER BY sort_order,name,id",insert:"INSERT INTO payers(id,name,active,sort_order,payer_kind) VALUES(?,?,?,?,?)",update:"UPDATE payers SET name=?,active=?,sort_order=?,payer_kind=?,revision=revision+1 WHERE id=? AND revision=?",delete:"DELETE FROM payers WHERE id=? AND revision=?"},
         Kind::ReceiptSource=>Queries{list:"SELECT id,name,active,sort_order,NULL unit,NULL payer_kind,affects_balance,revision FROM receipt_sources ORDER BY sort_order,name,id",insert:"INSERT INTO receipt_sources(id,name,active,sort_order,affects_balance) VALUES(?,?,?,?,?)",update:"UPDATE receipt_sources SET name=?,active=?,sort_order=?,affects_balance=?,revision=revision+1 WHERE id=? AND revision=?",delete:"DELETE FROM receipt_sources WHERE id=? AND revision=?"},
@@ -58,8 +58,10 @@ pub(crate) async fn save(db:&SqlitePool,kind:Kind,id:Option<String>,revision:Opt
     }Ok(())
 }
 pub(crate) async fn delete(db:&SqlitePool,kind:Kind,id:String,revision:i64)->Result<(),String>{
-    let n=sqlx::query(kind.queries().delete).bind(id).bind(revision).execute(db).await.map_err(error)?.rows_affected();
-    if n!=1{return Err("ردیف تغییر کرده یا وجود ندارد؛ فهرست را دوباره بخوانید.".into());}Ok(())
+    let mut query=sqlx::query(kind.queries().delete).bind(&id).bind(revision);
+    if matches!(kind,Kind::Material){query=query.bind(&id);}
+    let n=query.execute(db).await.map_err(error)?.rows_affected();
+    if n!=1{if matches!(kind,Kind::Material){let used:i64=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sales WHERE material_id=?)").bind(&id).fetch_one(db).await.map_err(error)?;if used!=0{return Err("این ماده در فروش استفاده شده و حذف نمی‌شود؛ آن را غیرفعال کنید.".into());}}return Err("ردیف تغییر کرده یا وجود ندارد؛ فهرست را دوباره بخوانید.".into());}Ok(())
 }
 #[cfg(test)]
 mod tests {

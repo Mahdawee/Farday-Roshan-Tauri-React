@@ -4,6 +4,7 @@ mod employees;
 mod attendance;
 mod lookups;
 mod financial;
+mod sales;
 use sqlx::{sqlite::{SqliteConnectOptions,SqlitePoolOptions},SqlitePool};
 use std::{path::PathBuf,time::Duration};
 use tauri::{Manager,State};
@@ -54,13 +55,20 @@ async fn save_lookup(db:State<'_,Database>,kind:lookups::Kind,id:Option<String>,
 #[tauri::command]
 async fn delete_lookup(db:State<'_,Database>,kind:lookups::Kind,id:String,revision:i64)->Result<(),String>{lookups::delete(&db.0,kind,id,revision).await}
 
+#[tauri::command]
+async fn list_sales(db:State<'_,Database>)->Result<Vec<sales::Sale>,String>{sales::list(&db.0).await}
+#[tauri::command]
+async fn save_sale(db:State<'_,Database>,id:Option<String>,revision:Option<i64>,input:sales::SaleInput)->Result<(),String>{sales::save(&db.0,id,revision,input).await}
+#[tauri::command]
+async fn delete_sale(db:State<'_,Database>,id:String,revision:i64)->Result<(),String>{sales::delete(&db.0,id,revision).await}
+
 #[cfg_attr(mobile,tauri::mobile_entry_point)]
 pub fn run(){
     tauri::Builder::default().setup(|app|{
         let dir=app.path().app_data_dir()?;std::fs::create_dir_all(&dir)?;
         let db=tauri::async_runtime::block_on(open_database(dir.join("farday-next.sqlite3")))?;
         app.manage(Database(db));Ok(())
-    }).invoke_handler(tauri::generate_handler![company_snapshot,save_company,save_machine,delete_machine,list_customers,save_customer,delete_customer,list_employees,save_employee,delete_employee,attendance_day,save_attendance,attendance_month,attendance_summary,list_lookups,save_lookup,delete_lookup])
+    }).invoke_handler(tauri::generate_handler![company_snapshot,save_company,save_machine,delete_machine,list_customers,save_customer,delete_customer,list_employees,save_employee,delete_employee,attendance_day,save_attendance,attendance_month,attendance_summary,list_lookups,save_lookup,delete_lookup,list_sales,save_sale,delete_sale])
       .run(tauri::generate_context!()).expect("failed to start preview");
 }
 
@@ -71,7 +79,7 @@ mod migration_tests {
     static MIGRATIONS:Migrator=sqlx::migrate!();
     #[tokio::test]
     async fn upgrading_old_databases_preserves_existing_data() {
-        for last in [1,2,3,4] {
+        for last in [1,2,3,4,5] {
             let path=std::env::temp_dir().join(format!("farday-upgrade-{}.sqlite3",uuid::Uuid::new_v4()));
             let options=SqliteConnectOptions::new().filename(&path).create_if_missing(true);
             let pool=SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
@@ -85,6 +93,7 @@ mod migration_tests {
             if last>=2 {sqlx::query("INSERT INTO customers(id,code,name,opening_balance_minor) VALUES('old-c','CUS-001','مشتری موجود',12345)").execute(&pool).await.unwrap();}
             if last>=3 {sqlx::query("INSERT INTO employees(id,emp_code,full_name,status) VALUES('old-e','EMP-001','کارمند موجود','active')").execute(&pool).await.unwrap();}
             if last>=4 {sqlx::query("INSERT INTO attendance(record_id,employee_id,work_date,status,overtime_hundredths) VALUES('old-a','old-e','2024-02-29','present',125)").execute(&pool).await.unwrap();}
+            if last>=5 {sqlx::query("INSERT INTO material_types(id,name,unit,active,sort_order) VALUES('old-m','ریگ موجود','متر',1,10)").execute(&pool).await.unwrap();}
             pool.close().await;
             let pool=open_database(path.clone()).await.unwrap();
             let name:String=sqlx::query_scalar("SELECT name FROM company WHERE id=1").fetch_one(&pool).await.unwrap();
@@ -93,7 +102,8 @@ mod migration_tests {
             let employees:i64=sqlx::query_scalar("SELECT COUNT(*) FROM employees").fetch_one(&pool).await.unwrap();
             let attendance:i64=sqlx::query_scalar("SELECT COUNT(*) FROM attendance").fetch_one(&pool).await.unwrap();
             assert_eq!(name,"شرکت موجود");assert_eq!(machines,1);assert_eq!(customers,if last>=2 {1}else{0});assert_eq!(employees,if last>=3 {1}else{0});assert_eq!(attendance,if last>=4 {1}else{0});
-            let materials:i64=sqlx::query_scalar("SELECT COUNT(*) FROM material_types").fetch_one(&pool).await.unwrap();assert_eq!(materials,0);
+            let materials:i64=sqlx::query_scalar("SELECT COUNT(*) FROM material_types").fetch_one(&pool).await.unwrap();assert_eq!(materials,if last>=5 {1}else{0});
+            let sales:i64=sqlx::query_scalar("SELECT COUNT(*) FROM sales").fetch_one(&pool).await.unwrap();assert_eq!(sales,0);
             if last>=2 {let balance:i64=sqlx::query_scalar("SELECT opening_balance_minor FROM customers WHERE id='old-c'").fetch_one(&pool).await.unwrap();assert_eq!(balance,12345);}
             pool.close().await;std::fs::remove_file(path).unwrap();
         }

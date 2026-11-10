@@ -44,9 +44,10 @@ pub(crate) async fn save(db:&SqlitePool,id:Option<String>,revision:Option<i64>,i
     } Ok(())
 }
 pub(crate) async fn delete(db:&SqlitePool,id:String,revision:i64)->Result<(),String> {
-    let n=sqlx::query("DELETE FROM customers WHERE id=? AND revision=?").bind(id).bind(revision).execute(db).await.map_err(message)?.rows_affected();
-    if n!=1 {return Err("مشتری تغییر کرده یا وجود ندارد؛ فهرست را دوباره بخوانید.".into());}Ok(())
+    let n=sqlx::query("DELETE FROM customers WHERE id=? AND revision=? AND NOT EXISTS(SELECT 1 FROM sales WHERE customer_id=?)").bind(&id).bind(revision).bind(&id).execute(db).await.map_err(message)?.rows_affected();
+    if n!=1 {let used:i64=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sales WHERE customer_id=?)").bind(&id).fetch_one(db).await.map_err(message)?;if used!=0{return Err("مشتری دارای فروش است و حذف نمی‌شود.".into());}return Err("مشتری تغییر کرده یا وجود ندارد؛ فهرست را دوباره بخوانید.".into());}Ok(())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;use crate::open_database;

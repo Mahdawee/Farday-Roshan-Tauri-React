@@ -1,10 +1,11 @@
 import {invoke} from '@tauri-apps/api/core';
 import {inDesktop} from './store';
 import {blankCustomer,validateCustomer} from './customers';
+import {customerHasSales} from './previewSales';
 import type {Customer,CustomerInput,CustomerStore} from './customers';
 const native:CustomerStore={list:()=>invoke('list_customers'),save:(id,revision,input)=>invoke('save_customer',{id,revision,input}),delete:(id,revision)=>invoke('delete_customer',{id,revision})};
 const asciiFold=(s:string)=>s.replace(/[A-Z]/g,c=>c.toLowerCase());
-export function createCustomerPreviewStore():CustomerStore {
+export function createCustomerPreviewStore(hasSales:(id:string)=>boolean=()=>false):CustomerStore {
   let items:Customer[]=[];
   return {
     async list(){return structuredClone(items.slice().sort((a,b)=>a.name.localeCompare(b.name)||a.id.localeCompare(b.id)));},
@@ -13,7 +14,7 @@ export function createCustomerPreviewStore():CustomerStore {
       const existing=id===null?undefined:items.find(c=>c.id===id&&c.revision===revision);if(id!==null&&!existing)throw new Error('مشتری تغییر کرده یا وجود ندارد؛ فهرست را دوباره بخوانید.');
       if(items.some(c=>c.id!==id&&asciiFold(c.code)===asciiFold(clean.code)))throw new Error('کد مشتری تکراری است.');
       if(existing)Object.assign(existing,clean,{revision:existing.revision+1});else items.push({...clean,id:crypto.randomUUID(),revision:1});},
-    async delete(id,revision){const index=items.findIndex(c=>c.id===id&&c.revision===revision);if(index<0)throw new Error('مشتری تغییر کرده یا وجود ندارد؛ فهرست را دوباره بخوانید.');items.splice(index,1);},
+    async delete(id,revision){const index=items.findIndex(c=>c.id===id&&c.revision===revision);if(hasSales(id))throw new Error('مشتری دارای فروش است و حذف نمی‌شود.');if(index<0)throw new Error('مشتری تغییر کرده یا وجود ندارد؛ فهرست را دوباره بخوانید.');items.splice(index,1);},
   };
 }
-export const customerStore:CustomerStore=inDesktop?native:createCustomerPreviewStore();
+export const customerStore:CustomerStore=inDesktop?native:createCustomerPreviewStore(customerHasSales);

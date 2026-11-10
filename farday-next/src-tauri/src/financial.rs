@@ -4,7 +4,7 @@
 const VOLUME_LIMIT:i128=999_999_999_999; // DECIMAL(12,3), thousandths
 const RATE_LIMIT:i128=99_999_999_999_999; // DECIMAL(14,2), hundredths
 const TOTAL_LIMIT:i128=9_999_999_999_999_999; // DECIMAL(16,2), hundredths
-fn canonical(s:&str,max:i128)->Result<i128,&'static str>{
+pub(crate) fn canonical(s:&str,max:i128)->Result<i128,&'static str>{
     let digits=if let Some(rest)=s.strip_prefix('-'){rest}else{s};
     if digits.is_empty()||digits.len()>16||!digits.bytes().all(|b|b.is_ascii_digit())||(digits.len()>1&&digits.starts_with('0'))||s=="-0" {return Err("invalid scaled integer");}
     let n=s.parse::<i128>().map_err(|_|"invalid scaled integer")?;
