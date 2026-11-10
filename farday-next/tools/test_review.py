@@ -2,7 +2,7 @@
 """Check review artifacts only; does NOT execute PHP, Rust, or real accounting data."""
 import json
 import unittest
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from schema_inventory import inventory, TARGET
 
@@ -18,6 +18,22 @@ class ReviewChecks(unittest.TestCase):
             'material_types','expense_types','payers','receipt_sources',
             'sales','expenses','receipts','salaries','users','counters','report_notes','activity_log'
         })
+    def test_exact_financial_vectors_against_decimal(self):
+        """Independent decimal oracle; deliberately not a claim of live PHP parity."""
+        for line in (BASE/'contracts/financial-arithmetic.tsv').read_text(encoding='utf-8').splitlines():
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split('\t')
+            if parts[0] == 'S':
+                v, price, freight, expected = map(D, parts[1:])
+                actual = (v * (price + freight) / D(1000)).quantize(D(1), rounding=ROUND_HALF_UP)
+            elif parts[0] == 'P':
+                base, bonus, overtime, fine, expected = map(D, parts[1:])
+                actual = base + bonus + overtime - fine
+            else:
+                self.fail('unknown vector')
+            self.assertEqual(actual, expected, line)
+
     def test_example_arithmetic_and_legacy_ledger_discrepancy(self):
         f = json.loads((BASE/'contracts/financial-example.json').read_text(encoding='utf-8'))
         sale = f['credit_sale']; total = D(sale['volume']) * (D(sale['unit_price']) + D(sale['freight_per_unit']))

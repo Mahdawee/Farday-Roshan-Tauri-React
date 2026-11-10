@@ -1,0 +1,17 @@
+# Synthetic assumptions, NOT verified PHP/accountant output. Inputs and outputs are scaled integer strings.
+# S volume_thousandths price_hundredths freight_hundredths total_hundredths
+S	10000	50000	30000	800000
+S	1000	1	0	1
+S	500	1	0	1
+S	499	1	0	0
+S	1500	1	0	2
+S	-500	1	0	-1
+S	500	-1	0	-1
+S	-500	-1	0	1
+S	3333	12345	4567	56368
+S	0	99999999999999	99999999999999	0
+# P base_hundredths bonus_hundredths overtime_hundredths fine_hundredths total_hundredths
+P	100000	10000	2500	5000	107500
+P	0	0	0	1	-1
+P	-100	0	0	-50	-50
+P	99999999999999	99999999999999	99999999999999	-99999999999999	399999999999996

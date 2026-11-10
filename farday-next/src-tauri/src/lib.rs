@@ -3,6 +3,7 @@ mod customers;
 mod employees;
 mod attendance;
 mod lookups;
+mod financial;
 use sqlx::{sqlite::{SqliteConnectOptions,SqlitePoolOptions},SqlitePool};
 use std::{path::PathBuf,time::Duration};
 use tauri::{Manager,State};
