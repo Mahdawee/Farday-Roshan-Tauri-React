@@ -26,7 +26,21 @@ jobs:
       - run: python3 tools/schema_inventory.py --check
       - run: python3 tools/test_review.py
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - name: Run browser tests
+        shell: bash
+        run: |
+          set +e
+          npm run test:e2e > e2e.log 2>&1
+          code=$?
+          cat e2e.log
+          if [ "$code" -ne 0 ]; then
+            message=$(tail -100 e2e.log)
+            message=${message//'%'/'%25'}
+            message=${message//$'\r'/'%0D'}
+            message=${message//$'\n'/'%0A'}
+            echo "::error::$message"
+            exit "$code"
+          fi
   windows:
     runs-on: windows-latest
     defaults:

@@ -4,7 +4,7 @@ import {Building2,Factory,Save,Trash2,RefreshCw,Users} from 'lucide-react';
 import {blankMachine,integer,validateCompany,validateMachine} from './company';
 import type {Company,Machine,MachineInput,MachineStatus,Snapshot} from './company';
 import {inDesktop,store} from './store';
-import Customers from './Customers';
+import Customers from './CustomerPage';
 import './style.css';
 
 const statusLabels:Record<MachineStatus,string>={active:'فعال',inactive:'غیرفعال',repair:'تحت ترمیم'};
