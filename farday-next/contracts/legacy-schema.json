@@ -1,0 +1,800 @@
+{
+  "source": "database/schema.sql",
+  "scope": "DDL only; does not inspect deployed databases or rows",
+  "tables": [
+    {
+      "table": "company",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "TINYINT UNSIGNED NOT NULL DEFAULT 1"
+        },
+        {
+          "name": "name",
+          "definition": "VARCHAR(120)  NOT NULL DEFAULT 'شرکت فردای روشن'"
+        },
+        {
+          "name": "activity_type",
+          "definition": "VARCHAR(120)  NOT NULL DEFAULT 'تولید مواد ساختمانی'"
+        },
+        {
+          "name": "address",
+          "definition": "VARCHAR(255)  DEFAULT NULL"
+        },
+        {
+          "name": "finance_manager",
+          "definition": "VARCHAR(120)  DEFAULT NULL COMMENT 'مدیر مالی'"
+        },
+        {
+          "name": "supervisor",
+          "definition": "VARCHAR(120)  DEFAULT NULL COMMENT 'سرپرست'"
+        },
+        {
+          "name": "fiscal_year_note",
+          "definition": "VARCHAR(60)   DEFAULT NULL COMMENT 'سال مالی جاری'"
+        },
+        {
+          "name": "employees_count",
+          "definition": "INT           NOT NULL DEFAULT 0 COMMENT 'تعداد کارمندان'"
+        },
+        {
+          "name": "phone",
+          "definition": "VARCHAR(60)   DEFAULT NULL"
+        },
+        {
+          "name": "email",
+          "definition": "VARCHAR(120)  DEFAULT NULL"
+        },
+        {
+          "name": "license_no",
+          "definition": "VARCHAR(60)   DEFAULT NULL COMMENT 'شماره جواز'"
+        },
+        {
+          "name": "notes",
+          "definition": "TEXT          DEFAULT NULL"
+        },
+        {
+          "name": "updated_at",
+          "definition": "TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "machines",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "name",
+          "definition": "VARCHAR(120) NOT NULL COMMENT 'نوع ماشین'"
+        },
+        {
+          "name": "count",
+          "definition": "INT          NOT NULL DEFAULT 1 COMMENT 'تعداد'"
+        },
+        {
+          "name": "status",
+          "definition": "ENUM('فعال','غیرفعال','تحت ترمیم') NOT NULL DEFAULT 'فعال'"
+        },
+        {
+          "name": "notes",
+          "definition": "VARCHAR(255) DEFAULT NULL"
+        },
+        {
+          "name": "sort_order",
+          "definition": "INT          NOT NULL DEFAULT 0"
+        }
+      ]
+    },
+    {
+      "table": "settings",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "TINYINT UNSIGNED NOT NULL DEFAULT 1"
+        },
+        {
+          "name": "calendar",
+          "definition": "ENUM('shamsi','miladi') NOT NULL DEFAULT 'shamsi' COMMENT 'تقویم سیستم'"
+        },
+        {
+          "name": "fiscal_start_month",
+          "definition": "TINYINT NOT NULL DEFAULT 1 COMMENT 'ماه آغاز سال مالی در تقویم فعال'"
+        },
+        {
+          "name": "fiscal_start_day",
+          "definition": "TINYINT NOT NULL DEFAULT 1 COMMENT 'روز آغاز سال مالی'"
+        },
+        {
+          "name": "cashbox_mode",
+          "definition": "ENUM('all','cash_only') NOT NULL DEFAULT 'all' COMMENT 'روش محاسبه موجودی دخل'"
+        },
+        {
+          "name": "opening_cash",
+          "definition": "DECIMAL(16,2) NOT NULL DEFAULT 0 COMMENT 'موجودی اول دخل'"
+        },
+        {
+          "name": "opening_cash_date",
+          "definition": "DATE DEFAULT NULL"
+        },
+        {
+          "name": "usd_label",
+          "definition": "VARCHAR(10) NOT NULL DEFAULT 'دالر'"
+        },
+        {
+          "name": "afn_label",
+          "definition": "VARCHAR(10) NOT NULL DEFAULT 'افغانی'"
+        },
+        {
+          "name": "display_digits",
+          "definition": "ENUM('en','fa') NOT NULL DEFAULT 'en' COMMENT 'شکل ارقام'"
+        },
+        {
+          "name": "print_header",
+          "definition": "VARCHAR(255) DEFAULT NULL COMMENT 'سرصفحه چاپ'"
+        },
+        {
+          "name": "theme_mode",
+          "definition": "ENUM('light','dark','auto') NOT NULL DEFAULT 'auto' COMMENT 'حالت ظاهر سیستم'"
+        },
+        {
+          "name": "accent",
+          "definition": "VARCHAR(16) NOT NULL DEFAULT 'teal' COMMENT 'رنگ اصلی'"
+        },
+        {
+          "name": "density",
+          "definition": "ENUM('comfortable','compact') NOT NULL DEFAULT 'comfortable' COMMENT 'فشردگی چیدمان'"
+        },
+        {
+          "name": "font_size",
+          "definition": "ENUM('small','normal','large') NOT NULL DEFAULT 'normal' COMMENT 'اندازه خط'"
+        },
+        {
+          "name": "corner_style",
+          "definition": "ENUM('soft','medium','sharp') NOT NULL DEFAULT 'soft' COMMENT 'شکل گوشه‌ها'"
+        },
+        {
+          "name": "table_stripes",
+          "definition": "TINYINT NOT NULL DEFAULT 1 COMMENT 'ردیف‌های یک‌درمیان رنگی جدول'"
+        },
+        {
+          "name": "font_family",
+          "definition": "ENUM('poppins','vazirmatn','system') NOT NULL DEFAULT 'poppins' COMMENT 'فونت سیستم'"
+        },
+        {
+          "name": "updated_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "employees",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "emp_code",
+          "definition": "VARCHAR(20)  NOT NULL COMMENT 'کد کارمند'"
+        },
+        {
+          "name": "full_name",
+          "definition": "VARCHAR(120) NOT NULL COMMENT 'نام و تخلص'"
+        },
+        {
+          "name": "father_name",
+          "definition": "VARCHAR(120) DEFAULT NULL COMMENT 'نام پدر'"
+        },
+        {
+          "name": "job_title",
+          "definition": "VARCHAR(80)  DEFAULT NULL COMMENT 'وظیفه'"
+        },
+        {
+          "name": "hire_date",
+          "definition": "DATE         DEFAULT NULL COMMENT 'تاریخ استخدام'"
+        },
+        {
+          "name": "base_salary",
+          "definition": "DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT 'معاش ثابت'"
+        },
+        {
+          "name": "phone",
+          "definition": "VARCHAR(40)  DEFAULT NULL COMMENT 'شماره تماس'"
+        },
+        {
+          "name": "tazkira_no",
+          "definition": "VARCHAR(40)  DEFAULT NULL COMMENT 'شماره تذکره'"
+        },
+        {
+          "name": "address",
+          "definition": "VARCHAR(255) DEFAULT NULL COMMENT 'آدرس'"
+        },
+        {
+          "name": "contract_duration",
+          "definition": "VARCHAR(60)  DEFAULT NULL COMMENT 'مدت قرارداد'"
+        },
+        {
+          "name": "status",
+          "definition": "ENUM('فعال','غیرفعال') NOT NULL DEFAULT 'فعال'"
+        },
+        {
+          "name": "notes",
+          "definition": "TEXT         DEFAULT NULL COMMENT 'توضیحات'"
+        },
+        {
+          "name": "created_at",
+          "definition": "TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "definition": "TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "attendance",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "employee_id",
+          "definition": "INT  NOT NULL"
+        },
+        {
+          "name": "work_date",
+          "definition": "DATE NOT NULL"
+        },
+        {
+          "name": "status",
+          "definition": "ENUM('حاضر','غایب','رخصت','مریض','رخصتی رسمی','جمعه') NOT NULL DEFAULT 'حاضر'"
+        },
+        {
+          "name": "check_in",
+          "definition": "TIME DEFAULT NULL"
+        },
+        {
+          "name": "check_out",
+          "definition": "TIME DEFAULT NULL"
+        },
+        {
+          "name": "overtime_hours",
+          "definition": "DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT 'ساعات اضافه کاری'"
+        },
+        {
+          "name": "notes",
+          "definition": "VARCHAR(255) DEFAULT NULL"
+        },
+        {
+          "name": "created_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "customers",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "code",
+          "definition": "VARCHAR(20)  NOT NULL COMMENT 'کد مشتری'"
+        },
+        {
+          "name": "name",
+          "definition": "VARCHAR(160) NOT NULL COMMENT 'نام مشتری / شرکت'"
+        },
+        {
+          "name": "contact_person",
+          "definition": "VARCHAR(120) DEFAULT NULL COMMENT 'شخص رابط'"
+        },
+        {
+          "name": "phone",
+          "definition": "VARCHAR(40)  DEFAULT NULL"
+        },
+        {
+          "name": "vehicle_plate",
+          "definition": "VARCHAR(40)  DEFAULT NULL COMMENT 'پلیت موتر'"
+        },
+        {
+          "name": "opening_balance",
+          "definition": "DECIMAL(16,2) NOT NULL DEFAULT 0 COMMENT 'باقی مانده بدهی اولیه'"
+        },
+        {
+          "name": "address",
+          "definition": "VARCHAR(255) DEFAULT NULL"
+        },
+        {
+          "name": "notes",
+          "definition": "TEXT         DEFAULT NULL"
+        },
+        {
+          "name": "created_at",
+          "definition": "TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "definition": "TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "material_types",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "name",
+          "definition": "VARCHAR(80) NOT NULL"
+        },
+        {
+          "name": "unit",
+          "definition": "VARCHAR(20) NOT NULL DEFAULT 'متر مکعب'"
+        },
+        {
+          "name": "active",
+          "definition": "TINYINT NOT NULL DEFAULT 1"
+        },
+        {
+          "name": "sort_order",
+          "definition": "INT NOT NULL DEFAULT 0"
+        }
+      ]
+    },
+    {
+      "table": "expense_types",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "name",
+          "definition": "VARCHAR(80) NOT NULL"
+        },
+        {
+          "name": "active",
+          "definition": "TINYINT NOT NULL DEFAULT 1"
+        },
+        {
+          "name": "sort_order",
+          "definition": "INT NOT NULL DEFAULT 0"
+        }
+      ]
+    },
+    {
+      "table": "payers",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "name",
+          "definition": "VARCHAR(80) NOT NULL"
+        },
+        {
+          "name": "kind",
+          "definition": "ENUM('دخل','شخصی','بانک','شرکت') NOT NULL DEFAULT 'شخصی'"
+        },
+        {
+          "name": "active",
+          "definition": "TINYINT NOT NULL DEFAULT 1"
+        },
+        {
+          "name": "sort_order",
+          "definition": "INT NOT NULL DEFAULT 0"
+        }
+      ]
+    },
+    {
+      "table": "receipt_sources",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "name",
+          "definition": "VARCHAR(80) NOT NULL"
+        },
+        {
+          "name": "affects_balance",
+          "definition": "TINYINT NOT NULL DEFAULT 1 COMMENT 'از باقی مانده بدهی مشتری کم شود؟'"
+        },
+        {
+          "name": "active",
+          "definition": "TINYINT NOT NULL DEFAULT 1"
+        },
+        {
+          "name": "sort_order",
+          "definition": "INT NOT NULL DEFAULT 0"
+        }
+      ]
+    },
+    {
+      "table": "sales",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "sale_no",
+          "definition": "VARCHAR(24)  NOT NULL COMMENT 'شماره'"
+        },
+        {
+          "name": "sale_date",
+          "definition": "DATE         NOT NULL COMMENT 'تاریخ'"
+        },
+        {
+          "name": "customer_id",
+          "definition": "INT          DEFAULT NULL COMMENT 'کد مشتری'"
+        },
+        {
+          "name": "bill_no",
+          "definition": "VARCHAR(30)  DEFAULT NULL COMMENT 'بلنمبر فروش'"
+        },
+        {
+          "name": "driver_name",
+          "definition": "VARCHAR(120) DEFAULT NULL COMMENT 'نام دریور'"
+        },
+        {
+          "name": "vehicle_plate",
+          "definition": "VARCHAR(40)  DEFAULT NULL COMMENT 'پلیت موتر'"
+        },
+        {
+          "name": "destination",
+          "definition": "VARCHAR(160) DEFAULT NULL COMMENT 'مقصد'"
+        },
+        {
+          "name": "material_id",
+          "definition": "INT          NOT NULL COMMENT 'نوع مواد'"
+        },
+        {
+          "name": "volume",
+          "definition": "DECIMAL(12,3) NOT NULL DEFAULT 0 COMMENT 'متراژ (متر مکعب)'"
+        },
+        {
+          "name": "unit_price",
+          "definition": "DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT 'قیمت فی متر'"
+        },
+        {
+          "name": "freight",
+          "definition": "DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT 'کرایه'"
+        },
+        {
+          "name": "total_amount",
+          "definition": "DECIMAL(16,2) NOT NULL DEFAULT 0 COMMENT 'مجموع قیمت و کرایه'"
+        },
+        {
+          "name": "related_to",
+          "definition": "VARCHAR(160) DEFAULT NULL COMMENT 'مربوط'"
+        },
+        {
+          "name": "payment_type",
+          "definition": "ENUM('نقده','باقی') NOT NULL DEFAULT 'نقده' COMMENT 'نوع پرداخت'"
+        },
+        {
+          "name": "notes",
+          "definition": "TEXT DEFAULT NULL COMMENT 'توضیحات'"
+        },
+        {
+          "name": "created_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "expenses",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "expense_no",
+          "definition": "VARCHAR(24) NOT NULL COMMENT 'شماره'"
+        },
+        {
+          "name": "expense_date",
+          "definition": "DATE NOT NULL COMMENT 'تاریخ'"
+        },
+        {
+          "name": "description",
+          "definition": "VARCHAR(255) NOT NULL COMMENT 'شرح'"
+        },
+        {
+          "name": "expense_type_id",
+          "definition": "INT DEFAULT NULL COMMENT 'انواع مصرف - مربوط'"
+        },
+        {
+          "name": "related_to",
+          "definition": "VARCHAR(160) DEFAULT NULL COMMENT 'مربوط'"
+        },
+        {
+          "name": "purchase_bill_no",
+          "definition": "VARCHAR(40) DEFAULT NULL COMMENT 'نمبر بل خرید'"
+        },
+        {
+          "name": "shop_name",
+          "definition": "VARCHAR(160) DEFAULT NULL COMMENT 'نام فروشگاه / از دوکان'"
+        },
+        {
+          "name": "amount_afn",
+          "definition": "DECIMAL(16,2) NOT NULL DEFAULT 0 COMMENT 'مبلغ افغانی'"
+        },
+        {
+          "name": "amount_usd",
+          "definition": "DECIMAL(16,2) NOT NULL DEFAULT 0 COMMENT 'مبلغ دالری'"
+        },
+        {
+          "name": "usd_rate",
+          "definition": "DECIMAL(12,2) DEFAULT NULL COMMENT 'نرخ دالر (فقط جهت یادداشت)'"
+        },
+        {
+          "name": "payer_id",
+          "definition": "INT DEFAULT NULL COMMENT 'پرداخت کننده'"
+        },
+        {
+          "name": "payment_method",
+          "definition": "ENUM('نقده','باقی') NOT NULL DEFAULT 'نقده' COMMENT 'روش پرداخت'"
+        },
+        {
+          "name": "notes",
+          "definition": "TEXT DEFAULT NULL"
+        },
+        {
+          "name": "created_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "receipts",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "receipt_no",
+          "definition": "VARCHAR(24) NOT NULL COMMENT 'شماره'"
+        },
+        {
+          "name": "receipt_date",
+          "definition": "DATE NOT NULL COMMENT 'تاریخ'"
+        },
+        {
+          "name": "customer_id",
+          "definition": "INT DEFAULT NULL COMMENT 'کد مشتری'"
+        },
+        {
+          "name": "amount",
+          "definition": "DECIMAL(16,2) NOT NULL DEFAULT 0 COMMENT 'مبلغ رسید'"
+        },
+        {
+          "name": "related_bill_no",
+          "definition": "VARCHAR(40) DEFAULT NULL COMMENT 'شماره بل مربوط'"
+        },
+        {
+          "name": "source_id",
+          "definition": "INT DEFAULT NULL COMMENT 'از درک'"
+        },
+        {
+          "name": "received_by",
+          "definition": "VARCHAR(120) DEFAULT NULL COMMENT 'توسط'"
+        },
+        {
+          "name": "notes",
+          "definition": "TEXT DEFAULT NULL COMMENT 'شرح'"
+        },
+        {
+          "name": "created_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "salaries",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "salary_no",
+          "definition": "VARCHAR(24) NOT NULL COMMENT 'شماره'"
+        },
+        {
+          "name": "pay_year",
+          "definition": "SMALLINT NOT NULL COMMENT 'سال (به تقویم سیستم)'"
+        },
+        {
+          "name": "pay_month",
+          "definition": "TINYINT NOT NULL COMMENT 'ماه (به تقویم سیستم)'"
+        },
+        {
+          "name": "pay_date",
+          "definition": "DATE NOT NULL COMMENT 'تاریخ پرداخت'"
+        },
+        {
+          "name": "employee_id",
+          "definition": "INT NOT NULL COMMENT 'کد کارمند'"
+        },
+        {
+          "name": "base_salary",
+          "definition": "DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT 'معاش ثابت'"
+        },
+        {
+          "name": "bonus",
+          "definition": "DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT 'پاداش'"
+        },
+        {
+          "name": "fine",
+          "definition": "DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT 'جریمه'"
+        },
+        {
+          "name": "overtime_pay",
+          "definition": "DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT 'اضافه کاری'"
+        },
+        {
+          "name": "total_pay",
+          "definition": "DECIMAL(16,2) NOT NULL DEFAULT 0 COMMENT 'مجموع پرداخت'"
+        },
+        {
+          "name": "payer_id",
+          "definition": "INT DEFAULT NULL COMMENT 'پرداخت کننده'"
+        },
+        {
+          "name": "payment_type",
+          "definition": "ENUM('نقد','حواله') NOT NULL DEFAULT 'نقد' COMMENT 'نوع پرداخت'"
+        },
+        {
+          "name": "notes",
+          "definition": "TEXT DEFAULT NULL"
+        },
+        {
+          "name": "created_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        },
+        {
+          "name": "updated_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "users",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "INT AUTO_INCREMENT"
+        },
+        {
+          "name": "username",
+          "definition": "VARCHAR(40) NOT NULL"
+        },
+        {
+          "name": "password_hash",
+          "definition": "VARCHAR(255) NOT NULL"
+        },
+        {
+          "name": "full_name",
+          "definition": "VARCHAR(120) DEFAULT NULL"
+        },
+        {
+          "name": "role",
+          "definition": "ENUM('مدیر','کارمند') NOT NULL DEFAULT 'مدیر'"
+        },
+        {
+          "name": "active",
+          "definition": "TINYINT NOT NULL DEFAULT 1"
+        },
+        {
+          "name": "last_login_at",
+          "definition": "DATETIME DEFAULT NULL"
+        },
+        {
+          "name": "created_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "counters",
+      "columns": [
+        {
+          "name": "series",
+          "definition": "VARCHAR(24) NOT NULL"
+        },
+        {
+          "name": "yr",
+          "definition": "SMALLINT NOT NULL"
+        },
+        {
+          "name": "value",
+          "definition": "INT NOT NULL DEFAULT 0"
+        }
+      ]
+    },
+    {
+      "table": "report_notes",
+      "columns": [
+        {
+          "name": "scope",
+          "definition": "ENUM('monthly','yearly') NOT NULL"
+        },
+        {
+          "name": "period",
+          "definition": "VARCHAR(20) NOT NULL COMMENT 'مثلاً 1405-07 یا 1405'"
+        },
+        {
+          "name": "notes",
+          "definition": "TEXT"
+        },
+        {
+          "name": "updated_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        }
+      ]
+    },
+    {
+      "table": "activity_log",
+      "columns": [
+        {
+          "name": "id",
+          "definition": "BIGINT AUTO_INCREMENT"
+        },
+        {
+          "name": "user_id",
+          "definition": "INT DEFAULT NULL"
+        },
+        {
+          "name": "username",
+          "definition": "VARCHAR(40) DEFAULT NULL"
+        },
+        {
+          "name": "action",
+          "definition": "VARCHAR(20) NOT NULL"
+        },
+        {
+          "name": "entity",
+          "definition": "VARCHAR(40) NOT NULL"
+        },
+        {
+          "name": "entity_id",
+          "definition": "VARCHAR(40) DEFAULT NULL"
+        },
+        {
+          "name": "details",
+          "definition": "VARCHAR(255) DEFAULT NULL"
+        },
+        {
+          "name": "created_at",
+          "definition": "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        }
+      ]
+    }
+  ]
+}

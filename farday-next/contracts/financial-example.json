@@ -1,0 +1,12 @@
+{
+  "status": "calculated-review-fixture-not-a-verified-php-run-or-accounting-approval",
+  "currency": "AFN",
+  "opening_cash": "0.00",
+  "opening_customer_debt": "1000.00",
+  "credit_sale": {"volume": "10.000", "unit_price": "500.00", "freight_per_unit": "300.00"},
+  "cash_sale": "500.00",
+  "receipts": [{"amount": "1200.00", "affects_balance": true}, {"amount": "300.00", "affects_balance": false}],
+  "expenses": [{"amount_afn": "120.00", "amount_usd": "5.00", "payment": "cash", "payer_kind": "cashbox"}, {"amount_afn": "80.00", "amount_usd": "0.00", "payment": "credit", "payer_kind": "other"}],
+  "salaries": [{"amount_afn": "70.00", "payment": "cash", "payer_kind": "cashbox"}, {"amount_afn": "30.00", "payment": "transfer", "payer_kind": "other"}],
+  "expected": {"credit_sale_total": "8000.00", "customer_balance": "7800.00", "legacy_ledger_if_both_receipts_within_range": "7500.00", "legacy_simple_cash_delta": "1700.00", "legacy_cash_only_delta": "1810.00", "legacy_profit_formula": "8200.00"}
+}

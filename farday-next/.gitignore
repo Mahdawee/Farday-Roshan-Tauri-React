@@ -1,0 +1,13 @@
+# Local build, test, cache and private data; never commit company information.
+__pycache__/
+*.pyc
+node_modules/
+dist/
+target/
+*.tsbuildinfo
+test-results/
+playwright-report/
+*.sqlite*
+*.db
+*.sql.gz
+*.sql.zip
