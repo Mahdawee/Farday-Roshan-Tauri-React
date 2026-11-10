@@ -40,13 +40,18 @@ async fn attendance_day(db:State<'_,Database>,work_date:String)->Result<Vec<atte
 #[tauri::command]
 async fn save_attendance(db:State<'_,Database>,work_date:String,changes:Vec<attendance::Change>)->Result<(),String>{attendance::save(&db.0,work_date,changes).await}
 
+#[tauri::command]
+async fn attendance_month(db:State<'_,Database>,year:i64,month:i64)->Result<attendance::MonthReport,String>{attendance::month(&db.0,year,month).await}
+#[tauri::command]
+async fn attendance_summary(db:State<'_,Database>,from:String,to:String)->Result<Vec<attendance::SummaryRow>,String>{attendance::summary(&db.0,from,to).await}
+
 #[cfg_attr(mobile,tauri::mobile_entry_point)]
 pub fn run(){
     tauri::Builder::default().setup(|app|{
         let dir=app.path().app_data_dir()?;std::fs::create_dir_all(&dir)?;
         let db=tauri::async_runtime::block_on(open_database(dir.join("farday-next.sqlite3")))?;
         app.manage(Database(db));Ok(())
-    }).invoke_handler(tauri::generate_handler![company_snapshot,save_company,save_machine,delete_machine,list_customers,save_customer,delete_customer,list_employees,save_employee,delete_employee,attendance_day,save_attendance])
+    }).invoke_handler(tauri::generate_handler![company_snapshot,save_company,save_machine,delete_machine,list_customers,save_customer,delete_customer,list_employees,save_employee,delete_employee,attendance_day,save_attendance,attendance_month,attendance_summary])
       .run(tauri::generate_context!()).expect("failed to start preview");
 }
 

@@ -6,7 +6,7 @@ import type {Company,Machine,MachineInput,MachineStatus,Snapshot} from './compan
 import {inDesktop,store} from './store';
 import Customers from './CustomerPage';
 import EmployeePage from './EmployeePage';
-import AttendancePage from './AttendancePage';
+import AttendanceWorkspace from './AttendanceWorkspace';
 import './style.css';
 
 const statusLabels:Record<MachineStatus,string>={active:'فعال',inactive:'غیرفعال',repair:'تحت ترمیم'};
@@ -36,7 +36,7 @@ function App(){
     <section className="panel"><div className="panel-head"><div><h2>انواع و تعداد ماشینری</h2><p>مجموع ماشین‌ها: {data.machines.reduce((n,m)=>n+BigInt(m.count),0n).toString()} عدد</p></div></div><div className="table-wrap"><table><thead><tr><th>نوع ماشین</th><th>تعداد</th><th>وضعیت</th><th>توضیحات</th><th>ترتیب</th><th className="no-print">عملیات</th></tr></thead><tbody>{data.machines.map(m=><tr key={m.id}><td>{m.name}</td><td>{m.count}</td><td>{statusLabels[m.status]}</td><td>{m.notes||'—'}</td><td>{m.sort_order}</td><td className="no-print"><button type="button" disabled={busy} onClick={()=>edit(m)}>ویرایش</button> <button className="danger" type="button" disabled={busy} onClick={()=>remove(m)}><Trash2 size={14}/> حذف</button></td></tr>)}</tbody></table>{data.machines.length===0&&<p className="empty">هنوز ماشینری ثبت نشده است.</p>}</div>
       <form onSubmit={saveMachine} className="machine-form no-print"><h3>{editing?'ویرایش ماشینری':'ثبت ماشینری جدید'}</h3><div className="form-grid"><label><span>نوع ماشین</span><input required maxLength={120} value={machine.name} onChange={e=>setMachine({...machine,name:e.target.value})}/></label><label><span>تعداد ماشین</span><input inputMode="numeric" value={countRaw} onChange={e=>setCountRaw(e.target.value)}/></label><label><span>وضعیت ماشین</span><select value={machine.status} onChange={e=>setMachine({...machine,status:e.target.value as MachineStatus})}>{Object.entries(statusLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label><label><span>توضیحات ماشین</span><input maxLength={255} value={machine.notes} onChange={e=>setMachine({...machine,notes:e.target.value})}/></label><label><span>ترتیب ماشین</span><input inputMode="numeric" value={orderRaw} onChange={e=>setOrderRaw(e.target.value)}/></label></div><div className="actions"><button className="primary" disabled={busy}>{editing?'ذخیره تغییرات ماشین':'ثبت ماشین'}</button>{editing&&<button className="secondary" type="button" onClick={()=>{setEditing(null);setMachine({...blankMachine});setCountRaw('1');setOrderRaw('10');}}>انصراف</button>}</div></form>
     </section></>}
-    </div><div hidden={view!=='customers'}><Customers/></div><div hidden={view!=='employees'}><EmployeePage/></div><div hidden={view!=='attendance'}><AttendancePage active={view==='attendance'}/></div>
+    </div><div hidden={view!=='customers'}><Customers/></div><div hidden={view!=='employees'}><EmployeePage/></div><div hidden={view!=='attendance'}><AttendanceWorkspace active={view==='attendance'}/></div>
     <footer>فردای روشن — پیش‌نمایش مستقل، برای استفادهٔ واقعی آماده نیست.</footer>
   </main></div>;
 }
